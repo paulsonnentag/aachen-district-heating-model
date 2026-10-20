@@ -1,0 +1,174 @@
+{
+  "id": "aachen-housing",
+  "title": "Aachen housing market: social housing quota",
+  "description": "Two-segment DiPasquale–Wheaton model. All values are placeholders unless they cite a source.",
+  "sources": {
+    "wohnungsmarktbericht_2026": {
+      "title": "Aachen Wohnungsmarktbericht 2026 (summary)",
+      "url": "https://aachen50plus.de/aachen-wohnungsmarktbericht/",
+      "publisher": "aachen50plus.de",
+      "verification": "primaryRead"
+    },
+    "quota_decision_2019": {
+      "title": "Ratsinfo Aachen: quota decision 2019",
+      "url": "https://ratsinfo.aachen.de/bi/wicket/resource/org.apache.wicket.Application/doc321668.pdf",
+      "publisher": "Stadt Aachen",
+      "verification": "snippetOnly"
+    },
+    "quaestio": {
+      "title": "Ratsinfo Aachen: Quaestio Wohnungsbedarfsprognose",
+      "url": "https://ratsinfo.aachen.de/bi/wicket/resource/org.apache.wicket.Application/doc537773.pdf",
+      "publisher": "Stadt Aachen",
+      "verification": "unverified"
+    }
+  },
+  "datasets": {
+    "zensus_stock_free_2022": {
+      "value": 130000,
+      "unit": "dwellings",
+      "source": { "assumption": "Placeholder: replace with Zensus 2022 dwellings minus social stock" }
+    },
+    "zensus_stock_social_2022": {
+      "value": 10000,
+      "unit": "dwellings",
+      "source": { "assumption": "Placeholder: replace with the city's count of rent-restricted dwellings" }
+    },
+    "bauueberhang_2022": {
+      "value": 2500,
+      "unit": "dwellings",
+      "source": { "assumption": "Placeholder: replace with IT.NRW Bauüberhang (approved, not completed)" }
+    },
+    "households_path": {
+      "file": "data/households.csv",
+      "dims": { "year": "year" },
+      "column": "households",
+      "unit": "households",
+      "source": { "assumption": "Placeholder path: 140,000 households growing 0.3% per year" }
+    },
+    "mietspiegel_rent_2022": {
+      "value": 108,
+      "unit": "EUR/(m2*year)",
+      "source": { "assumption": "Placeholder: 9 EUR/m² per month; replace with the official Mietspiegel" }
+    },
+    "social_rent": {
+      "value": 78,
+      "unit": "EUR/(m2*year)",
+      "source": { "assumption": "Placeholder: 6.50 EUR/m² per month subsidised rent" }
+    },
+    "cap_rate": {
+      "value": 0.035,
+      "unit": "1/year",
+      "source": { "assumption": "Placeholder: replace with the Gutachterausschuss Liegenschaftszinssatz" }
+    },
+    "replacement_cost": {
+      "value": 4000,
+      "unit": "EUR/m2",
+      "source": { "assumption": "Placeholder: construction plus land; replace with Baupreisindex and BORIS.NRW" }
+    },
+    "starts_at_parity": {
+      "value": 1500,
+      "unit": "dwellings/year",
+      "source": { "assumption": "Placeholder: starts when developer price equals replacement cost" }
+    },
+    "construction_time": {
+      "value": 2.5,
+      "unit": "year",
+      "source": { "assumption": "Placeholder: average time from start to completion" }
+    },
+    "construction_elasticity": {
+      "value": 1.5,
+      "unit": "dmnl",
+      "source": { "assumption": "Contested: the quota debate is a disagreement about this value" }
+    },
+    "demand_elasticity": {
+      "value": 0.7,
+      "unit": "dmnl",
+      "source": { "assumption": "Placeholder: borrow from literature" }
+    },
+    "depreciation": {
+      "value": 0.002,
+      "unit": "1/year",
+      "source": { "assumption": "Placeholder: demolition and conversion rate" }
+    },
+    "quota": {
+      "value": 0.4,
+      "unit": "dmnl",
+      "source": {
+        "ref": "quota_decision_2019",
+        "locator": "40% subsidised units in new planning areas",
+        "note": "The model applies the quota to all completions, which overstates its reach"
+      }
+    },
+    "expiring_units_path": {
+      "value": { "2022": 1000, "2040": 1000 },
+      "dims": ["year"],
+      "unit": "dwellings/year",
+      "source": { "assumption": "Held flat at the 'more than 1,000' units in one year reported by the Wohnungsmarktbericht 2026" }
+    },
+    "funded_units_path": {
+      "value": { "2022": 318, "2040": 318 },
+      "dims": ["year"],
+      "unit": "dwellings/year",
+      "source": { "assumption": "Held flat at the 318 newly approved subsidised units reported by the Wohnungsmarktbericht 2026" }
+    },
+    "quaestio_dwelling_need": {
+      "value": { "2022": 141000, "2030": 145000, "2039": 148000 },
+      "dims": ["year"],
+      "unit": "dwellings",
+      "source": { "assumption": "Placeholder until the Quaestio forecast values are extracted" }
+    }
+  },
+  "nodes": [
+    {
+      "id": "housing_market",
+      "label": "Housing market",
+      "semantics": "xmile",
+      "model": "models/housing-market.xmile",
+      "inputs": {
+        "stock_free_2022": "zensus_stock_free_2022",
+        "stock_social_2022": "zensus_stock_social_2022",
+        "under_construction_2022": "bauueberhang_2022",
+        "households": "households_path",
+        "rent_2022": "mietspiegel_rent_2022",
+        "social_rent": "social_rent",
+        "cap_rate": "cap_rate",
+        "replacement_cost": "replacement_cost",
+        "starts_at_parity": "starts_at_parity",
+        "construction_time": "construction_time",
+        "construction_elasticity": "construction_elasticity",
+        "demand_elasticity": "demand_elasticity",
+        "depreciation": "depreciation",
+        "quota": "quota",
+        "expiring": "expiring_units_path",
+        "funded": "funded_units_path"
+      },
+      "outputs": {
+        "free": "stock_free",
+        "social": "stock_social",
+        "total_stock": "total_stock",
+        "under_construction": "under_construction",
+        "rent": "market_rent",
+        "developer_price": "developer_price",
+        "starts": "starts",
+        "completions": "completions"
+      }
+    },
+    {
+      "id": "quaestio_benchmark",
+      "label": "Benchmark against Quaestio",
+      "semantics": "equation",
+      "model": {
+        "variables": {
+          "housing_gap": { "equation": "dwelling_need - total_stock", "units": "dwellings" }
+        }
+      },
+      "inputs": {
+        "dwelling_need": "quaestio_dwelling_need",
+        "total_stock": "total_stock"
+      },
+      "outputs": {
+        "housing_gap": "housing_gap"
+      }
+    }
+  ]
+}

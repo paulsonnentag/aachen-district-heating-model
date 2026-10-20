@@ -1,0 +1,12 @@
+{
+  "label": "Bauturbo: faster construction",
+  "expectation": "The pipeline of dwellings under construction drains faster, so completions rise early",
+  "patch": {
+    "datasets": {
+      "construction_time": {
+        "value": 1.5,
+        "source": { "assumption": "Bauturbo shortens the time from start to completion by one year" }
+      }
+    }
+  }
+}

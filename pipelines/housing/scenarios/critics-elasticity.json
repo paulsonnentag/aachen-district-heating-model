@@ -1,0 +1,12 @@
+{
+  "label": "Critics' view: construction reacts strongly",
+  "expectation": "The quota lowers developer prices, so with a high elasticity starts fall sharply and total stock grows less",
+  "patch": {
+    "datasets": {
+      "construction_elasticity": {
+        "value": 3,
+        "source": { "assumption": "Critics' view: construction is highly price-elastic" }
+      }
+    }
+  }
+}

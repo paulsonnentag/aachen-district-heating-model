@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <header>
+    <name>Heating stock turnover</name>
+    <vendor>model-workbench</vendor>
+    <product version="0.2">model-workbench</product>
+  </header>
+  <sim_specs method="Euler" time_units="year">
+    <start>2022</start>
+    <stop>2045</stop>
+    <dt>1</dt>
+  </sim_specs>
+  <dimensions>
+    <!-- Cells come from the data: every 100 m census cell the inputs cover -->
+    <dim name="cell"/>
+    <dim name="tech"><elem name="gas"/><elem name="oil"/><elem name="hp"/><elem name="dh"/><elem name="biomass"/><elem name="electric"/><elem name="other"/></dim>
+    <dim name="age"><elem name="b0"/><elem name="b1"/><elem name="b2"/><elem name="b3"/></dim>
+  </dimensions>
+  <model>
+    <variables>
+      <!-- Inputs: every number enters here, wired to a dataset by the pipeline -->
+      <aux name="initial_stock" access="input"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>0</eqn><units>buildings</units></aux>
+      <aux name="initial_age_share" access="input"><dimensions><dim name="tech"/><dim name="age"/></dimensions><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="bucket_width" access="input"><eqn>0</eqn><units>year</units></aux>
+      <aux name="hazard" access="input"><dimensions><dim name="tech"/><dim name="age"/></dimensions><eqn>0</eqn><units>1/year</units></aux>
+      <aux name="heat_demand" access="input"><dimensions><dim name="cell"/></dimensions><eqn>0</eqn><units>MWh/year</units></aux>
+      <aux name="heat_density" access="input"><dimensions><dim name="cell"/></dimensions><eqn>0</eqn><units>MWh/(m*year)</units></aux>
+      <aux name="expansion_year" access="input"><dimensions><dim name="cell"/></dimensions><eqn>0</eqn><units>year</units></aux>
+      <aux name="expansion_delay" access="input"><eqn>0</eqn><units>year</units></aux>
+      <aux name="pipe_cost" access="input"><eqn>0</eqn><units>EUR/m</units></aux>
+      <aux name="interest_rate" access="input"><eqn>0</eqn><units>1/year</units></aux>
+      <aux name="pipe_lifetime" access="input"><eqn>0</eqn><units>year</units></aux>
+      <aux name="min_conn_rate" access="input"><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="dh_supply_cost" access="input"><eqn>0</eqn><units>EUR/MWh</units></aux>
+      <aux name="energy_cost" access="input"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>0</eqn><units>EUR/MWh</units></aux>
+      <aux name="capex_annual" access="input"><dimensions><dim name="tech"/></dimensions><eqn>0</eqn><units>EUR/MWh</units></aux>
+      <aux name="uses_network" access="input"><dimensions><dim name="tech"/></dimensions><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="fossil" access="input"><dimensions><dim name="tech"/></dimensions><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="choosable" access="input"><dimensions><dim name="tech"/></dimensions><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="ban_start_year" access="input"><eqn>0</eqn><units>year</units></aux>
+      <aux name="beta_cost" access="input"><eqn>0</eqn><units>MWh/EUR</units></aux>
+      <aux name="asc" access="input"><dimensions><dim name="tech"/></dimensions><eqn>0</eqn><units>dmnl</units></aux>
+
+      <!-- Aging chain: four ten-year age buckets of installed heating systems -->
+      <stock name="age_0">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>initial_stock * initial_age_share[tech, b0]</eqn>
+        <inflow>installs</inflow>
+        <outflow>aging_0</outflow>
+        <outflow>replaced_0</outflow>
+        <units>buildings</units>
+      </stock>
+      <stock name="age_1">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>initial_stock * initial_age_share[tech, b1]</eqn>
+        <inflow>aging_0</inflow>
+        <outflow>aging_1</outflow>
+        <outflow>replaced_1</outflow>
+        <units>buildings</units>
+      </stock>
+      <stock name="age_2">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>initial_stock * initial_age_share[tech, b2]</eqn>
+        <inflow>aging_1</inflow>
+        <outflow>aging_2</outflow>
+        <outflow>replaced_2</outflow>
+        <units>buildings</units>
+      </stock>
+      <stock name="age_3">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>initial_stock * initial_age_share[tech, b3]</eqn>
+        <inflow>aging_2</inflow>
+        <outflow>replaced_3</outflow>
+        <units>buildings</units>
+      </stock>
+      <flow name="aging_0"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_0 / bucket_width</eqn><units>buildings/year</units></flow>
+      <flow name="aging_1"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_1 / bucket_width</eqn><units>buildings/year</units></flow>
+      <flow name="aging_2"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_2 / bucket_width</eqn><units>buildings/year</units></flow>
+      <flow name="replaced_0"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_0 * hazard[tech, b0]</eqn><units>buildings/year</units></flow>
+      <flow name="replaced_1"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_1 * hazard[tech, b1]</eqn><units>buildings/year</units></flow>
+      <flow name="replaced_2"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_2 * hazard[tech, b2]</eqn><units>buildings/year</units></flow>
+      <flow name="replaced_3"><dimensions><dim name="cell"/><dim name="tech"/></dimensions><eqn>age_3 * hazard[tech, b3]</eqn><units>buildings/year</units></flow>
+
+      <aux name="systems" access="output">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>age_0 + age_1 + age_2 + age_3</eqn>
+        <units>buildings</units>
+      </aux>
+      <aux name="replacements" access="output">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>replaced_0 + replaced_1 + replaced_2 + replaced_3</eqn>
+        <units>buildings/year</units>
+      </aux>
+
+      <!-- Shares: census-suppressed cells have no buildings and count as uncovered -->
+      <aux name="buildings">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>SUM(systems[cell, *])</eqn>
+        <units>buildings</units>
+      </aux>
+      <aux name="covered">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>IF buildings > 0 THEN 1 ELSE 0</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="tech_share">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>IF buildings[cell] > 0 THEN systems / buildings[cell] ELSE 0</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="conn_rate" access="output">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>tech_share[cell, dh]</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="heat_share" access="output">
+        <dimensions><dim name="tech"/></dimensions>
+        <eqn>SUM(heat_demand[*] * tech_share[*, tech]) / SUM(heat_demand[*] * covered[*])</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="dh_heat_share" access="output">
+        <eqn>heat_share[dh]</eqn>
+        <units>dmnl</units>
+      </aux>
+
+      <!-- Network economics: fixed pipe cost spread over connected demand (reinforcing loop) -->
+      <aux name="annuity"><eqn>interest_rate / (1 - (1 + interest_rate * DT) ^ (-pipe_lifetime / DT))</eqn><units>1/year</units></aux>
+      <aux name="dh_network_cost" access="output">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>annuity * pipe_cost / (MAX(conn_rate, min_conn_rate) * heat_density) + dh_supply_cost</eqn>
+        <units>EUR/MWh</units>
+      </aux>
+      <aux name="dh_available" access="output">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>IF TIME >= expansion_year + (IF expansion_year > STARTTIME THEN expansion_delay ELSE 0) THEN 1 ELSE 0</eqn>
+        <units>dmnl</units>
+      </aux>
+
+      <!-- Choice: multinomial logit; rules and availability remove options from the choice set -->
+      <aux name="ban_active"><eqn>IF TIME >= ban_start_year THEN 1 ELSE 0</eqn><units>dmnl</units></aux>
+      <aux name="cost" access="output">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>energy_cost + capex_annual[tech] + uses_network[tech] * dh_network_cost[cell]</eqn>
+        <units>EUR/MWh</units>
+      </aux>
+      <aux name="allowed">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>choosable[tech] * (1 - fossil[tech] * ban_active) * (1 - uses_network[tech] * (1 - dh_available[cell]))</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="weight">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>allowed * EXP(beta_cost * cost + asc[tech])</eqn>
+        <units>dmnl</units>
+      </aux>
+      <aux name="total_replacements">
+        <dimensions><dim name="cell"/></dimensions>
+        <eqn>SUM(replacements[cell, *])</eqn>
+        <units>buildings/year</units>
+      </aux>
+      <flow name="installs" access="output">
+        <dimensions><dim name="cell"/><dim name="tech"/></dimensions>
+        <eqn>total_replacements[cell] * weight / SUM(weight[cell, *])</eqn>
+        <units>buildings/year</units>
+      </flow>
+    </variables>
+  </model>
+</xmile>

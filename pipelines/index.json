@@ -1,0 +1,21 @@
+{
+  "pipelines": [
+    {
+      "path": "heat-transition/pipeline.json",
+      "scenarios": [
+        "heat-transition/scenarios/geg-2024-rule.json",
+        "heat-transition/scenarios/network-delay.json",
+        "heat-transition/scenarios/high-prices.json",
+        "heat-transition/scenarios/renovation-high.json"
+      ]
+    },
+    {
+      "path": "housing/pipeline.json",
+      "scenarios": [
+        "housing/scenarios/no-quota.json",
+        "housing/scenarios/critics-elasticity.json",
+        "housing/scenarios/bauturbo.json"
+      ]
+    }
+  ]
+}

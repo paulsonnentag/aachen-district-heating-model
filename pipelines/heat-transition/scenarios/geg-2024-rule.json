@@ -1,0 +1,17 @@
+{
+  "label": "If the 65% rule had stayed",
+  "expectation": "From mid-2026 no new gas or oil boilers: replacements go to heat pumps, biomass and, where available, district heating, so the fossil share falls much faster than under the Bio-Treppe",
+  "patch": {
+    "datasets": {
+      "ban_start_year": {
+        "value": 2026.5,
+        "source": {
+          "ref": null,
+          "locator": null,
+          "note": null,
+          "assumption": "Counterfactual: GEG 2024 §§ 71–73 kept, so in cities above 100,000 inhabitants like Aachen new heating systems must use 65% renewable energy from 1 July 2026. Simplified as a ban on gas and oil boilers."
+        }
+      }
+    }
+  }
+}

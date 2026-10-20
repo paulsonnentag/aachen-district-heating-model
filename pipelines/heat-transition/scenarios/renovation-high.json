@@ -1,0 +1,14 @@
+{
+  "label": "Fast renovation",
+  "expectation": "Lower demand thins out heat density, so district heating gets more expensive per MWh and loses share to heat pumps",
+  "patch": {
+    "datasets": {
+      "heat_demand": {
+        "file": "data/heat_demand_hoch.csv",
+        "source": {
+          "method": "Space heating and hot water demand of every heated building, summed per cell. 2022 is the base model; 2025–2045 are the model's high renovation projections (scenario \"hoch\")."
+        }
+      }
+    }
+  }
+}

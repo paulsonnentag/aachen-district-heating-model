@@ -1,0 +1,12 @@
+{
+  "label": "Network expansion delayed by 5 years",
+  "expectation": "Owners replacing systems while waiting choose gas or heat pumps; planned areas start with fewer connections, so the network cost per MWh stays higher and the heat plan target slips further",
+  "patch": {
+    "datasets": {
+      "expansion_delay": {
+        "value": 5,
+        "source": { "assumption": "Lock-in question: every planned expansion area connects five years late" }
+      }
+    }
+  }
+}

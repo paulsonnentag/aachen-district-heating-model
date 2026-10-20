@@ -1,0 +1,16 @@
+{
+  "label": "High gas and CO₂ prices",
+  "expectation": "Gas boilers lose share to heat pumps and district heating even without a ban",
+  "patch": {
+    "datasets": {
+      "fuel_price": {
+        "value": { "2030": { "gas": 120 }, "2045": { "gas": 150 } },
+        "source": { "assumption": "Sensitivity: gas end-user price (excluding CO₂) rising to 150 EUR/MWh by 2045" }
+      },
+      "co2_price": {
+        "value": { "2030": 150, "2045": 300 },
+        "source": { "assumption": "Sensitivity: BEHG prices until 2026, then a tight ETS2 reaching 150 EUR/t by 2030 and 300 EUR/t by 2045" }
+      }
+    }
+  }
+}

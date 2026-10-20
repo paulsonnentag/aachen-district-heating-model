@@ -1,0 +1,4 @@
+node_modules
+dist
+prep/*/raw
+.venv

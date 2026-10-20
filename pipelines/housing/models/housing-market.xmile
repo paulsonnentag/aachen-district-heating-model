@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <header>
+    <name>Two-segment DiPasquale–Wheaton housing market</name>
+    <vendor>model-workbench</vendor>
+    <product version="0.1">model-workbench</product>
+  </header>
+  <sim_specs method="Euler" time_units="year">
+    <start>2022</start>
+    <stop>2040</stop>
+    <dt>1</dt>
+  </sim_specs>
+  <model>
+    <variables>
+      <!-- Inputs: every number enters here, wired to a dataset by the pipeline -->
+      <aux name="stock_free_2022" access="input"><eqn>0</eqn><units>dwellings</units></aux>
+      <aux name="stock_social_2022" access="input"><eqn>0</eqn><units>dwellings</units></aux>
+      <aux name="under_construction_2022" access="input"><eqn>0</eqn><units>dwellings</units></aux>
+      <aux name="households" access="input"><eqn>0</eqn><units>households</units></aux>
+      <aux name="rent_2022" access="input"><eqn>0</eqn><units>EUR/(m2*year)</units></aux>
+      <aux name="social_rent" access="input"><eqn>0</eqn><units>EUR/(m2*year)</units></aux>
+      <aux name="cap_rate" access="input"><eqn>0</eqn><units>1/year</units></aux>
+      <aux name="replacement_cost" access="input"><eqn>0</eqn><units>EUR/m2</units></aux>
+      <aux name="starts_at_parity" access="input"><eqn>0</eqn><units>dwellings/year</units></aux>
+      <aux name="construction_time" access="input"><eqn>0</eqn><units>year</units></aux>
+      <aux name="construction_elasticity" access="input"><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="demand_elasticity" access="input"><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="depreciation" access="input"><eqn>0</eqn><units>1/year</units></aux>
+      <aux name="quota" access="input"><eqn>0</eqn><units>dmnl</units></aux>
+      <aux name="expiring" access="input"><eqn>0</eqn><units>dwellings/year</units></aux>
+      <aux name="funded" access="input"><eqn>0</eqn><units>dwellings/year</units></aux>
+
+      <!-- Stocks -->
+      <stock name="under_construction" access="output">
+        <eqn>under_construction_2022</eqn>
+        <inflow>starts</inflow>
+        <outflow>completions</outflow>
+        <units>dwellings</units>
+      </stock>
+      <stock name="free" access="output">
+        <eqn>stock_free_2022</eqn>
+        <inflow>completions_free</inflow>
+        <inflow>expiry</inflow>
+        <outflow>demolition_free</outflow>
+        <units>dwellings</units>
+      </stock>
+      <stock name="social" access="output">
+        <eqn>stock_social_2022</eqn>
+        <inflow>completions_social</inflow>
+        <inflow>funded_additions</inflow>
+        <outflow>expiry</outflow>
+        <outflow>demolition_social</outflow>
+        <units>dwellings</units>
+      </stock>
+
+      <!-- Space market: rent clears households against the stock -->
+      <aux name="total_stock" access="output"><eqn>free + social</eqn><units>dwellings</units></aux>
+      <aux name="occupancy"><eqn>households / total_stock</eqn><units>households/dwellings</units></aux>
+      <aux name="occupancy_2022"><eqn>INIT(occupancy)</eqn><units>households/dwellings</units></aux>
+      <aux name="rent" access="output">
+        <eqn>rent_2022 * (occupancy / occupancy_2022) ^ (1 / demand_elasticity)</eqn>
+        <units>EUR/(m2*year)</units>
+      </aux>
+
+      <!-- Asset market: price = rent / cap rate; the quota mixes in the social price -->
+      <aux name="market_price"><eqn>rent / cap_rate</eqn><units>EUR/m2</units></aux>
+      <aux name="social_price"><eqn>social_rent / cap_rate</eqn><units>EUR/m2</units></aux>
+      <aux name="developer_price" access="output">
+        <eqn>(1 - quota) * market_price + quota * social_price</eqn>
+        <units>EUR/m2</units>
+      </aux>
+
+      <!-- Construction responds to price relative to replacement cost -->
+      <flow name="starts" access="output">
+        <eqn>starts_at_parity * (developer_price / replacement_cost) ^ construction_elasticity</eqn>
+        <units>dwellings/year</units>
+      </flow>
+      <flow name="completions" access="output"><eqn>under_construction / construction_time</eqn><units>dwellings/year</units></flow>
+      <flow name="completions_free"><eqn>(1 - quota) * completions</eqn><units>dwellings/year</units></flow>
+      <flow name="completions_social"><eqn>quota * completions</eqn><units>dwellings/year</units></flow>
+
+      <!-- Transfers and losses -->
+      <flow name="expiry"><eqn>MIN(expiring, social / DT)</eqn><units>dwellings/year</units></flow>
+      <flow name="funded_additions"><eqn>funded</eqn><units>dwellings/year</units></flow>
+      <flow name="demolition_free"><eqn>depreciation * free</eqn><units>dwellings/year</units></flow>
+      <flow name="demolition_social"><eqn>depreciation * social</eqn><units>dwellings/year</units></flow>
+    </variables>
+  </model>
+</xmile>

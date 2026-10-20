@@ -1,0 +1,12 @@
+{
+  "label": "No quota",
+  "expectation": "More starts and a larger free segment; the social segment shrinks faster as units expire",
+  "patch": {
+    "datasets": {
+      "quota": {
+        "value": 0,
+        "source": { "ref": null, "locator": null, "note": null, "assumption": "Counterfactual: quota abolished" }
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <header><name>builtins</name><vendor>model-workbench</vendor><product version="0.1">model-workbench</product></header>
+  <sim_specs method="Euler" time_units="year"><start>2020</start><stop>2030</stop><dt>0.5</dt></sim_specs>
+  <dimensions>
+    <dim name="region"><elem name="north"/><elem name="south"/></dim>
+  </dimensions>
+  <model>
+    <variables>
+      <aux name="capacity"><eqn>120</eqn></aux>
+      <aux name="growth"><dimensions><dim name="region"/></dimensions><element subscript="north"><eqn>0.3</eqn></element><element subscript="south"><eqn>0.15</eqn></element></aux>
+      <aux name="price"><eqn>TIME</eqn><gf><xscale min="2020" max="2030"/><ypts>10,12,15,15,20,30</ypts></gf></aux>
+      <stock name="population">
+        <dimensions><dim name="region"/></dimensions>
+        <eqn>10</eqn>
+        <inflow>births</inflow>
+        <outflow>losses</outflow>
+      </stock>
+      <flow name="births"><dimensions><dim name="region"/></dimensions><eqn>growth * population * (1 - SUM(population[*]) / capacity)</eqn></flow>
+      <flow name="losses"><dimensions><dim name="region"/></dimensions><eqn>MIN(population / DT, (IF TIME >= 2025 AND NOT (price > 25) THEN 2 ELSE 0.5))</eqn></flow>
+      <aux name="relative"><dimensions><dim name="region"/></dimensions><eqn>population / INIT(population)</eqn></aux>
+      <aux name="peak_share"><eqn>MAX(population[north], population[south]) / SUM(population[*])</eqn></aux>
+      <aux name="curve"><eqn>(1 + growth[south]) ^ (TIME - STARTTIME) - ABS(-EXP(0)) + SQRT(LN(EXP(4)))</eqn></aux>
+    </variables>
+  </model>
+</xmile>

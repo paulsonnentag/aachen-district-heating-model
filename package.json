@@ -1,0 +1,27 @@
+{
+  "name": "model-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@observablehq/plot": "^0.6.17",
+    "@xmldom/xmldom": "^0.9.12",
+    "papaparse": "^5.7.0",
+    "solid-js": "^1.9.17",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.5.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^5.0.5"
+  }
+}

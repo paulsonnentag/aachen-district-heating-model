@@ -1,0 +1,431 @@
+{
+  "id": "aachen-heat-transition",
+  "title": "Aachen heat transition",
+  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data comes from prep/heat-transition/prepare.py.",
+  "sources": {
+    "nrw_kwp": {
+      "title": "Raumwärmebedarfsmodell NRW, KWP data package for Aachen (05334002)",
+      "url": "https://www.opengeodata.nrw.de/produkte/umwelt_klima/energie/kwp/KWP-NRW_05334002_Aachen_EPSG25832_Shape.zip",
+      "publisher": "Landesamt für Natur, Umwelt und Klima NRW (LANUK)",
+      "license": "DL-DE Zero 2.0",
+      "verification": "primaryRead"
+    },
+    "zensus2022_energy": {
+      "title": "Zensus 2022: buildings with living space by heating energy carrier, 100 m grid",
+      "url": "https://www.destatis.de/static/DE/zensus/gitterdaten/Gebaeude_mit_Wohnraum_nach_Energietraeger_der_Heizung.zip",
+      "publisher": "Statistische Ämter des Bundes und der Länder",
+      "license": "dl-de/by-2-0",
+      "verification": "primaryRead"
+    },
+    "aachen_heat_plan": {
+      "title": "Kommunaler Wärmeplan Aachen, WFS layer app:kwp_baubloecke_join",
+      "url": "https://wms.aachen.de/geofachdaten/services/kwp_wfs?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetCapabilities",
+      "publisher": "Stadt Aachen",
+      "verification": "primaryRead"
+    },
+    "schornsteinfeger_2025": {
+      "title": "Erhebungen des Schornsteinfegerhandwerks 2025",
+      "url": "https://www.schornsteinfeger.de/sites/default/files/downloads/Erhebungen_2025.pdf",
+      "publisher": "Bundesverband des Schornsteinfegerhandwerks (ZIV)",
+      "verification": "primaryRead"
+    },
+    "behg": {
+      "title": "Brennstoffemissionshandelsgesetz § 10",
+      "url": "https://www.gesetze-im-internet.de/behg/__10.html",
+      "publisher": "Bundesministerium der Justiz",
+      "verification": "primaryRead"
+    },
+    "geg_43": {
+      "title": "Gebäudeenergiegesetz § 43 as amended by the Gebäudemodernisierungsgesetz",
+      "url": "https://www.gesetze-im-internet.de/geg/__43.html",
+      "publisher": "Bundesministerium der Justiz",
+      "verification": "primaryRead"
+    },
+    "gmodg_portal": {
+      "title": "Gebäudemodernisierungsgesetz: overview of the new rules",
+      "url": "https://www.gmodg.bund.de/GEGPortal/DE/GEGRegelungen/GModG_neu/GModG_neu-node.html",
+      "publisher": "Bundesministerium für Wirtschaft und Energie",
+      "verification": "primaryRead"
+    }
+  },
+  "datasets": {
+    "heating_stock_2022": {
+      "file": "data/heating_stock_2022.csv",
+      "dims": { "cell": "cell", "tech": "tech" },
+      "column": "buildings",
+      "unit": "buildings",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["zensus2022_energy", "nrw_kwp"],
+        "method": "Census buildings per cell and heating energy carrier, mapped to seven technologies (biomass = wood/pellets + biogas; other = coal + none). \"–\" counts as 0 as the census documentation prescribes. Cells without heated buildings in the NRW model are dropped."
+      }
+    },
+    "heat_demand": {
+      "file": "data/heat_demand_moderat.csv",
+      "dims": { "cell": "cell", "year": "year" },
+      "column": "demand",
+      "unit": "MWh/year",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["nrw_kwp"],
+        "method": "Space heating and hot water demand of every heated building, summed per cell (building Raster_ID = census cell id). 2022 is the base model; 2025–2045 are the model's moderate renovation projections."
+      }
+    },
+    "street_length": {
+      "file": "data/street_length.csv",
+      "dims": { "cell": "cell" },
+      "column": "length",
+      "unit": "m",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["nrw_kwp"],
+        "method": "Length of the model's heat line segments (streets with heat demand), each split among cells in proportion to the demand of the buildings it serves."
+      }
+    },
+    "heat_pump_spf": {
+      "file": "data/heat_pump_spf.csv",
+      "dims": { "cell": "cell" },
+      "column": "spf",
+      "unit": "dmnl",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["nrw_kwp"],
+        "method": "Demand-weighted mean of the model's air-source heat pump seasonal performance factor (JAZ_Luft) over the residential buildings of each cell."
+      }
+    },
+    "dh_expansion_year": {
+      "file": "data/dh_expansion_year.csv",
+      "dims": { "cell": "cell" },
+      "column": "year",
+      "unit": "year",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["aachen_heat_plan", "nrw_kwp"],
+        "method": "Each building is placed in its heat plan block. A cell's year is the first plan year (2022, 2030, 2035, 2040, 2045) by which blocks holding at least half of the cell's demand are supplied by district or local heating; 2100 means not planned."
+      }
+    },
+    "heat_plan_network_share": {
+      "file": "data/heat_plan_network_share.csv",
+      "dims": { "year": "year" },
+      "column": "share",
+      "unit": "dmnl",
+      "source": {
+        "script": "prep/heat-transition/prepare.py",
+        "from": ["aachen_heat_plan"],
+        "method": "District plus local heating supply divided by total supply over all heat plan blocks, per target year."
+      }
+    },
+    "boiler_stock_2025": {
+      "file": "data/boiler_stock_2025.csv",
+      "dims": { "tech": "tech", "period": "period" },
+      "column": "appliances",
+      "unit": "appliances",
+      "source": {
+        "ref": "schornsteinfeger_2025",
+        "locator": "Tables 3.3.1 and 3.3.2 (non-condensing oil and gas appliances by installation period, row \"Summe\"); 3.4.1 and 3.4.2 (condensing: oil 991,410 of which 984,420 built 2000–2025; gas 8,845,660 of which 8,607,290)",
+        "note": "National figures for 2025; no Aachen or NRW breakdown is published. Other technologies are 0 here and get assumed ages instead."
+      }
+    },
+    "period_bucket": {
+      "file": "data/boiler_period_bucket.csv",
+      "dims": { "period": "period", "age": "age" },
+      "column": "share",
+      "unit": "dmnl",
+      "source": { "assumption": "Age in 2025 of each installation period: b0 = 2015–2025, b1 = 2005–2014, b2 = 1995–2004, b3 = before 1995. Condensing boilers from before 2000 go to b2; those from 2000–2025 are split 11:10:5 across b0, b1, b2, assuming equal installations per year." }
+    },
+    "assumed_age_weight": {
+      "value": {
+        "gas": { "b0": 0, "b1": 0, "b2": 0, "b3": 0 },
+        "oil": { "b0": 0, "b1": 0, "b2": 0, "b3": 0 },
+        "hp": { "b0": 0.75, "b1": 0.2, "b2": 0.05, "b3": 0 },
+        "dh": { "b0": 0.25, "b1": 0.25, "b2": 0.25, "b3": 0.25 },
+        "biomass": { "b0": 0.4, "b1": 0.35, "b2": 0.2, "b3": 0.05 },
+        "electric": { "b0": 0.05, "b1": 0.15, "b2": 0.3, "b3": 0.5 },
+        "other": { "b0": 0.25, "b1": 0.25, "b2": 0.25, "b3": 0.25 }
+      },
+      "dims": ["tech", "age"],
+      "unit": "dmnl",
+      "source": { "assumption": "No survey covers these technologies. Heat pumps are mostly recent, biomass boilers grew after 2005, night storage heaters are old, district heating connections and the rest are spread evenly. Gas and oil come from the chimney sweep survey." }
+    },
+    "bucket_width": {
+      "value": 10,
+      "unit": "year",
+      "source": { "assumption": "Model design: ten-year age buckets" }
+    },
+    "bucket_mid_age": {
+      "value": { "b0": 5, "b1": 15, "b2": 25, "b3": 35 },
+      "dims": ["age"],
+      "unit": "year",
+      "source": { "assumption": "Model design: midpoint of each ten-year bucket" }
+    },
+    "weibull_scale": {
+      "value": { "gas": 25, "oil": 30, "hp": 20, "dh": 30, "biomass": 20, "electric": 30, "other": 30 },
+      "dims": ["tech"],
+      "unit": "year",
+      "source": { "assumption": "Characteristic lifetimes. Long for gas and oil because the chimney sweep survey finds about 66% of gas and over 86% of oil appliances older than 20 years; district heating stations and storage heaters rarely fail." }
+    },
+    "weibull_shape": {
+      "value": { "gas": 3, "oil": 3, "hp": 3, "dh": 3, "biomass": 3, "electric": 3, "other": 3 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Shape 3: failure rates rise with age, as is common for wear-out of heating equipment" }
+    },
+    "fuel_price": {
+      "value": {
+        "2022": { "gas": 120, "oil": 130, "hp": 300, "dh": 0, "biomass": 110, "electric": 350, "other": 100 },
+        "2025": { "gas": 100, "oil": 85, "hp": 270, "dh": 0, "biomass": 70, "electric": 330, "other": 100 },
+        "2030": { "gas": 95, "oil": 85, "hp": 250, "dh": 0, "biomass": 75, "electric": 310, "other": 100 },
+        "2045": { "gas": 95, "oil": 90, "hp": 230, "dh": 0, "biomass": 80, "electric": 290, "other": 100 }
+      },
+      "dims": ["year", "tech"],
+      "unit": "EUR/MWh",
+      "source": { "assumption": "Household end-user prices per MWh of final energy, excluding the CO₂ price: the 2022 crisis peak, 2025 levels, then gently falling electricity (heat pump tariff below the household tariff). District heating is priced through the network instead." }
+    },
+    "co2_price": {
+      "value": { "2022": 30, "2023": 30, "2024": 45, "2025": 55, "2026": 65, "2030": 100, "2045": 200 },
+      "dims": ["year"],
+      "unit": "EUR/t",
+      "source": { "assumption": "2022–2026 follow the statutory BEHG prices (§ 10: 30, 30, 45, 55 EUR/t, and the 55–65 EUR/t corridor for 2026, upper bound taken). From 2027 heating fuels move to the EU ETS2, whose price is not set: 100 EUR/t by 2030 and 200 EUR/t by 2045 are assumptions." }
+    },
+    "emission_factor": {
+      "value": { "gas": 0.201, "oil": 0.266, "hp": 0, "dh": 0, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "t/MWh",
+      "source": { "assumption": "Fuel emission factors for natural gas and heating oil, as used for BEHG pricing; other carriers are outside the BEHG price on heating" }
+    },
+    "bio_quota": {
+      "value": { "2022": 0, "2028": 0, "2029": 0.1, "2030": 0.15, "2034": 0.15, "2035": 0.3, "2039": 0.3, "2040": 0.6, "2045": 0.6 },
+      "dims": ["year"],
+      "unit": "dmnl",
+      "source": {
+        "ref": "geg_43",
+        "locator": "§ 43 (1): minimum share of biomethane or bio-oil for new gas and oil heating – 10% from 2029, 15% from 2030, 30% from 2035, 60% from 2040",
+        "note": "The model applies the current year's quota to the cost of a newly chosen boiler (myopic owners)."
+      }
+    },
+    "quota_applies": {
+      "value": { "gas": 1, "oil": 1, "hp": 0, "dh": 0, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "ref": "geg_43", "locator": "§ 43 (1) applies to heating systems fired with gaseous or liquid fuels" }
+    },
+    "bio_fuel_price": {
+      "value": { "gas": 130, "oil": 150, "hp": 0, "dh": 0, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "EUR/MWh",
+      "source": { "assumption": "End-user price of biomethane and bio-oil (no CO₂ price); only used where the quota applies" }
+    },
+    "efficiency": {
+      "value": { "gas": 0.9, "oil": 0.85, "hp": 0, "dh": 1, "biomass": 0.85, "electric": 1, "other": 0.8 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Annual efficiency of the appliance; heat pumps use the cell's seasonal performance factor instead (0 here is unused)" }
+    },
+    "uses_spf": {
+      "value": { "gas": 0, "oil": 0, "hp": 1, "dh": 0, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Definition: only heat pumps convert with the seasonal performance factor" }
+    },
+    "capex_annual": {
+      "value": { "gas": 35, "oil": 40, "hp": 55, "dh": 25, "biomass": 60, "electric": 20, "other": 30 },
+      "dims": ["tech"],
+      "unit": "EUR/MWh",
+      "source": { "assumption": "Annualised installation cost per MWh of heat for a typical single-family house, after subsidies" }
+    },
+    "uses_network": {
+      "value": { "gas": 0, "oil": 0, "hp": 0, "dh": 1, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Definition: only district heating needs the network" }
+    },
+    "fossil": {
+      "value": { "gas": 1, "oil": 1, "hp": 0, "dh": 0, "biomass": 0, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Definition: the technologies a fossil heating ban would exclude" }
+    },
+    "choosable": {
+      "value": { "gas": 1, "oil": 1, "hp": 1, "dh": 1, "biomass": 1, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Night storage heaters, coal and unheated buildings are kept in the stock but no longer chosen for new installations" }
+    },
+    "ban_start_year": {
+      "value": 9999,
+      "unit": "year",
+      "source": {
+        "ref": "gmodg_portal",
+        "locator": "The Gebäudemodernisierungsgesetz removes the requirement that new heating systems run on at least 65% renewable energy (§§ 71–73 GEG 2024)",
+        "note": "9999 encodes that no fossil ban applies; the Bio-Treppe in bio_quota replaces it."
+      }
+    },
+    "beta_cost": {
+      "value": -0.03,
+      "unit": "MWh/EUR",
+      "source": { "assumption": "Cost sensitivity of the logit choice: a 10 EUR/MWh cost difference shifts the odds by about a quarter" }
+    },
+    "asc": {
+      "value": { "gas": 0, "oil": -1, "hp": -0.5, "dh": 0, "biomass": -1.5, "electric": 0, "other": 0 },
+      "dims": ["tech"],
+      "unit": "dmnl",
+      "source": { "assumption": "Preferences beyond cost: oil tank and biomass storage space, heat pump hassle; gas and district heating are the reference" }
+    },
+    "expansion_delay": {
+      "value": 0,
+      "unit": "year",
+      "source": { "assumption": "Baseline: network expansion on the heat plan's schedule" }
+    },
+    "pipe_cost": {
+      "value": 1500,
+      "unit": "EUR/m",
+      "source": { "assumption": "Distribution network cost per metre of street, uniform across cells" }
+    },
+    "interest_rate": {
+      "value": 0.04,
+      "unit": "1/year",
+      "source": { "assumption": "Real discount rate of a municipal utility" }
+    },
+    "pipe_lifetime": {
+      "value": 40,
+      "unit": "year",
+      "source": { "assumption": "Network depreciation period" }
+    },
+    "min_conn_rate": {
+      "value": 0.3,
+      "unit": "dmnl",
+      "source": { "assumption": "Connection rate the utility prices with in a new area; avoids division by zero" }
+    },
+    "dh_supply_cost": {
+      "value": 60,
+      "unit": "EUR/MWh",
+      "source": { "assumption": "Heat generation and operation cost of the network, excluding pipes" }
+    }
+  },
+  "nodes": [
+    {
+      "id": "heat_density",
+      "label": "Linear heat density",
+      "semantics": "equation",
+      "model": {
+        "variables": {
+          "heat_density": { "equation": "heat_demand / street_length", "units": "MWh/(m*year)", "dims": ["cell"] }
+        }
+      },
+      "inputs": { "heat_demand": "heat_demand", "street_length": "street_length" },
+      "outputs": { "heat_density": "heat_density" }
+    },
+    {
+      "id": "initial_age",
+      "label": "Initial age structure",
+      "semantics": "equation",
+      "description": "Survey counts by period, bucketed; technologies without survey data use the assumed weights.",
+      "model": {
+        "variables": {
+          "initial_age_share": {
+            "equation": "(SUM(boiler_stock[tech, *] * period_bucket[*, age]) + assumed_weight) / (SUM(boiler_stock[tech, *]) + SUM(assumed_weight[tech, *]))",
+            "units": "dmnl",
+            "dims": ["tech", "age"]
+          }
+        }
+      },
+      "inputs": { "boiler_stock": "boiler_stock_2025", "period_bucket": "period_bucket", "assumed_weight": "assumed_age_weight" },
+      "outputs": { "initial_age_share": "initial_age_share" }
+    },
+    {
+      "id": "replacement_hazard",
+      "label": "Weibull replacement hazard",
+      "semantics": "equation",
+      "model": {
+        "variables": {
+          "hazard": {
+            "equation": "shape[tech] / scale[tech] * (mid_age[age] / scale[tech]) ^ (shape[tech] - 1)",
+            "units": "1/year",
+            "dims": ["tech", "age"]
+          }
+        }
+      },
+      "inputs": { "scale": "weibull_scale", "shape": "weibull_shape", "mid_age": "bucket_mid_age" },
+      "outputs": { "hazard": "replacement_hazard" }
+    },
+    {
+      "id": "energy_cost",
+      "label": "Energy cost per MWh of heat",
+      "semantics": "equation",
+      "description": "Fuel blended with the mandatory biogenic share, plus CO₂ price, divided by efficiency or the cell's heat pump performance.",
+      "model": {
+        "variables": {
+          "energy_cost": {
+            "equation": "((1 - bio_quota * quota_applies) * (fuel_price + co2_price * emission_factor) + bio_quota * quota_applies * bio_fuel_price) / (uses_spf * spf + (1 - uses_spf) * efficiency)",
+            "units": "EUR/MWh",
+            "dims": ["cell", "tech"]
+          }
+        }
+      },
+      "inputs": {
+        "fuel_price": "fuel_price",
+        "co2_price": "co2_price",
+        "emission_factor": "emission_factor",
+        "bio_quota": "bio_quota",
+        "quota_applies": "quota_applies",
+        "bio_fuel_price": "bio_fuel_price",
+        "efficiency": "efficiency",
+        "uses_spf": "uses_spf",
+        "spf": "heat_pump_spf"
+      },
+      "outputs": { "energy_cost": "energy_cost" }
+    },
+    {
+      "id": "heat_turnover",
+      "label": "Heating stock turnover",
+      "semantics": "xmile",
+      "model": "models/heat-turnover.xmile",
+      "inputs": {
+        "initial_stock": "heating_stock_2022",
+        "initial_age_share": "initial_age_share",
+        "bucket_width": "bucket_width",
+        "hazard": "replacement_hazard",
+        "heat_demand": "heat_demand",
+        "heat_density": "heat_density",
+        "expansion_year": "dh_expansion_year",
+        "expansion_delay": "expansion_delay",
+        "pipe_cost": "pipe_cost",
+        "interest_rate": "interest_rate",
+        "pipe_lifetime": "pipe_lifetime",
+        "min_conn_rate": "min_conn_rate",
+        "dh_supply_cost": "dh_supply_cost",
+        "energy_cost": "energy_cost",
+        "capex_annual": "capex_annual",
+        "uses_network": "uses_network",
+        "fossil": "fossil",
+        "choosable": "choosable",
+        "ban_start_year": "ban_start_year",
+        "beta_cost": "beta_cost",
+        "asc": "asc"
+      },
+      "outputs": {
+        "systems": "heating_stock",
+        "replacements": "replacements",
+        "installs": "installs",
+        "heat_share": "heat_share",
+        "dh_heat_share": "dh_heat_share",
+        "conn_rate": "conn_rate",
+        "dh_network_cost": "dh_network_cost",
+        "dh_available": "dh_available",
+        "cost": "heating_cost"
+      }
+    },
+    {
+      "id": "target_check",
+      "label": "Heat plan target check",
+      "semantics": "equation",
+      "model": {
+        "variables": {
+          "target_gap": { "equation": "target - dh_share", "units": "dmnl" }
+        }
+      },
+      "inputs": { "dh_share": "dh_heat_share", "target": "heat_plan_network_share" },
+      "outputs": { "target_gap": "dh_target_gap" }
+    }
+  ]
+}
