@@ -49,6 +49,15 @@ export function sumExcept(tensor: Tensor, keep: string[]): Tensor {
   return reduceExcept(tensor, keep, 'sum');
 }
 
+/**
+ * Amounts (buildings, MWh/year, m) add up over collapsed dimensions; intensities
+ * (EUR/MWh, shares, years, rates) are averaged instead.
+ */
+export function reduction(tensor: Tensor): 'sum' | 'mean' {
+  const unit = tensor.unit.replace(/\s/g, '').replace(/\/(year|a)$/, '');
+  return unit.includes('/') || ['dmnl', '1', 'year', ''].includes(unit) ? 'mean' : 'sum';
+}
+
 /** Sums or averages over every dimension not listed in `keep`. */
 export function reduceExcept(tensor: Tensor, keep: string[], mode: 'sum' | 'mean'): Tensor {
   const kept = tensor.dims.filter((d) => keep.includes(d));

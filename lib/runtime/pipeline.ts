@@ -73,7 +73,9 @@ export const ScenarioSchema = z.object({
 });
 
 export const IndexSchema = z.object({
-  pipelines: z.array(z.object({ path: z.string(), scenarios: z.array(z.string()).default([]) })),
+  pipelines: z.array(
+    z.object({ path: z.string(), scenarios: z.array(z.string()).default([]), story: z.string().optional() }),
+  ),
 });
 
 export type Pipeline = z.infer<typeof PipelineSchema>;

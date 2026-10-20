@@ -2,6 +2,7 @@
   "pipelines": [
     {
       "path": "heat-transition/pipeline.json",
+      "story": "heat-transition/story.md",
       "scenarios": [
         "heat-transition/scenarios/geg-2024-rule.json",
         "heat-transition/scenarios/network-delay.json",

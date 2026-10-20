@@ -1,10 +1,13 @@
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
-import { loadIndex, resolvePipeline, scopedReader, type PipelineEntry } from '../lib/runtime/load';
-import { runPipeline, type RunResult } from '../lib/runtime/run';
+import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
+import type { RunResult } from '../lib/runtime/run';
+import { BASELINE, createRunCache } from '../lib/runtime/runs';
 import { semantics } from '../lib/semantics';
 import { DetailPanel } from './components/DetailPanel';
 import { GraphView, type Selection } from './graph/GraphView';
+import type { FocusTarget, StoryContext } from './story/elements';
+import { StoryPane } from './story/StoryPane';
 import { modelViews } from './views';
 
 const readText = async (path: string): Promise<string> => {
@@ -13,24 +16,40 @@ const readText = async (path: string): Promise<string> => {
   return response.text();
 };
 
+const runOf = createRunCache(readText, semantics);
+
+/** Which panes are visible: the story alone, story and model side by side, or the model alone. */
+type View = 'story' | 'split' | 'model';
+
 export function App() {
   const [entries] = createResource(() => loadIndex(readText));
   const [pipelineIndex, setPipelineIndex] = createSignal(0);
   const [scenarioIndex, setScenarioIndex] = createSignal(-1);
   const [selection, setSelection] = createSignal<Selection>();
   const [open, setOpen] = createSignal<string>();
+  const [view, setView] = createSignal<View>('model');
+  const [reveal, setReveal] = createSignal<Selection | undefined>(undefined, { equals: false });
   const entry = createMemo(() => entries()?.[pipelineIndex()]);
-  syncWithUrl({ entries, pipelineIndex, setPipelineIndex, scenarioIndex, setScenarioIndex, selection, setSelection, open, setOpen });
+  syncWithUrl({ entries, pipelineIndex, setPipelineIndex, scenarioIndex, setScenarioIndex, selection, setSelection, open, setOpen, view, setView });
   const [runs] = createResource(
     () => entry() && { entry: entry()!, scenario: scenarioIndex() },
     ({ entry, scenario }) => runEntry(entry, scenario),
   );
+  const [storyText] = createResource(() => entry()?.story, readText);
+  const storyShown = () => view() !== 'model';
+  const modelShown = () => view() !== 'story';
 
   const choosePipeline = (index: number) => {
     setPipelineIndex(index);
     setScenarioIndex(-1);
     setSelection(undefined);
     setOpen(undefined);
+    setView(defaultView(entries()?.[index]));
+  };
+  const togglePane = (pane: 'story' | 'model') => {
+    const shown = pane === 'story' ? storyShown() : modelShown();
+    if (!shown) setView('split');
+    else if (view() === 'split') setView(pane === 'story' ? 'model' : 'story');
   };
   const openable = (nodeId: string) => {
     const node = runs.latest?.result.pipeline.nodes.find((n) => n.id === nodeId);
@@ -39,6 +58,33 @@ export function App() {
   const openNode = (nodeId: string) => {
     if (openable(nodeId)) setOpen(nodeId);
   };
+  const focus = (target: FocusTarget) => {
+    const scenarios = entry()?.scenarios ?? [];
+    const selected: Selection | undefined = target.dataset
+      ? { kind: 'dataset', id: target.dataset }
+      : target.node
+        ? { kind: 'node', id: target.node }
+        : undefined;
+    setScenarioIndex(scenarios.findIndex((s) => s.name === target.scenario));
+    setSelection(selected);
+    setOpen(target.open && target.node && openable(target.node) ? target.node : undefined);
+    setView('split');
+    setReveal(selected);
+  };
+  const storyContext = createMemo((): StoryContext | undefined => {
+    const current = entry();
+    if (!current) return undefined;
+    return {
+      runs: (scenario) => runOf(current, scenario),
+      focus,
+      focused: () => {
+        if (!modelShown()) return undefined;
+        const s = selection();
+        return { scenario: current.scenarios[scenarioIndex()]?.name ?? BASELINE, dataset: s?.kind === 'dataset' ? s.id : undefined };
+      },
+      scenarioLabel: (name) => current.scenarios.find((s) => s.name === name)?.scenario.label ?? name,
+    };
+  });
 
   return (
     <div class="app">
@@ -55,7 +101,13 @@ export function App() {
             </For>
           </nav>
         </Show>
-        <Show when={entry()}>
+        <Show when={entry()?.story}>
+          <nav class="panes">
+            <button classList={{ active: storyShown() }} onClick={() => togglePane('story')}>Story</button>
+            <button classList={{ active: modelShown() }} onClick={() => togglePane('model')}>Model</button>
+          </nav>
+        </Show>
+        <Show when={entry() && modelShown()}>
           <nav class="scenarios">
             <span class="muted">Scenario</span>
             <button classList={{ active: scenarioIndex() === -1 }} onClick={() => setScenarioIndex(-1)}>Baseline</button>
@@ -75,52 +127,67 @@ export function App() {
       <Show when={runs.error}>
         <p class="error banner">{String(runs.error)}</p>
       </Show>
-      <Show when={runs.loading}>
+      <Show when={storyText.error}>
+        <p class="error banner">{String(storyText.error)}</p>
+      </Show>
+      <Show when={runs.loading && modelShown()}>
         <div class="loading">Running…</div>
       </Show>
-      <Show when={runs.latest}>
-        {(r) => (
-          <main>
-            <Show
-              when={r().result.nodes.get(open() ?? '')}
-              fallback={
-                <>
-                  <div class="canvas">
-                    <Summary runs={r()} expectation={entry()?.scenarios[scenarioIndex()]?.scenario.expectation} />
-                    <GraphView result={r().result} baseline={r().baseline} selected={selection()} onSelect={setSelection} onOpen={openNode} />
-                  </div>
-                  <Show when={selection()}>
-                    {(s) => (
-                      <DetailPanel
-                        selection={s()}
+      <main>
+        <Show when={storyText.latest !== undefined && storyContext()}>
+          {(context) => <StoryPane text={storyText.latest!} context={context()} split={view() === 'split'} hidden={!storyShown()} />}
+        </Show>
+        <Show when={modelShown() && runs.latest}>
+          {(r) => (
+            <div class="workbench">
+              <Show
+                when={r().result.nodes.get(open() ?? '')}
+                fallback={
+                  <>
+                    <div class="canvas">
+                      <Summary runs={r()} expectation={entry()?.scenarios[scenarioIndex()]?.scenario.expectation} />
+                      <GraphView
                         result={r().result}
                         baseline={r().baseline}
-                        canOpen={openable}
+                        selected={selection()}
+                        reveal={reveal()}
+                        onSelect={setSelection}
                         onOpen={openNode}
-                        onClose={() => setSelection(undefined)}
                       />
-                    )}
-                  </Show>
-                </>
-              }
-            >
-              {(node) => (
-                <div class="model-view">
-                  <div class="breadcrumb">
-                    <button onClick={() => setOpen(undefined)}>← Pipeline</button>
-                    <strong>{node().node.label}</strong>
-                    <span class="semantics">{node().node.semantics}</span>
-                    <Show when={typeof node().node.model === 'string'}>
-                      <code class="muted">{node().node.model as string}</code>
+                    </div>
+                    <Show when={selection()}>
+                      {(s) => (
+                        <DetailPanel
+                          selection={s()}
+                          result={r().result}
+                          baseline={r().baseline}
+                          canOpen={openable}
+                          onOpen={openNode}
+                          onClose={() => setSelection(undefined)}
+                        />
+                      )}
                     </Show>
+                  </>
+                }
+              >
+                {(node) => (
+                  <div class="model-view">
+                    <div class="breadcrumb">
+                      <button onClick={() => setOpen(undefined)}>← Pipeline</button>
+                      <strong>{node().node.label}</strong>
+                      <span class="semantics">{node().node.semantics}</span>
+                      <Show when={typeof node().node.model === 'string'}>
+                        <code class="muted">{node().node.model as string}</code>
+                      </Show>
+                    </div>
+                    <Dynamic component={modelViews[node().node.semantics]} node={node()} baseline={r().baseline?.nodes.get(node().node.id)} />
                   </div>
-                  <Dynamic component={modelViews[node().node.semantics]} node={node()} baseline={r().baseline?.nodes.get(node().node.id)} />
-                </div>
-              )}
-            </Show>
-          </main>
-        )}
-      </Show>
+                )}
+              </Show>
+            </div>
+          )}
+        </Show>
+      </main>
     </div>
   );
 }
@@ -144,7 +211,7 @@ function Summary(props: { runs: Runs; expectation?: string }) {
 
 type Runs = { result: RunResult; baseline?: RunResult };
 
-/** Mirrors the view in `?pipeline=housing&scenario=no-quota&select=dataset:quota&open=housing_market` so views can be linked. */
+/** Mirrors the view in `?pipeline=housing&scenario=no-quota&select=dataset:quota&open=housing_market&view=split` so views can be linked. */
 function syncWithUrl(state: {
   entries: () => PipelineEntry[] | undefined;
   pipelineIndex: () => number;
@@ -155,6 +222,8 @@ function syncWithUrl(state: {
   setSelection: (s: Selection | undefined) => void;
   open: () => string | undefined;
   setOpen: (nodeId: string | undefined) => void;
+  view: () => View;
+  setView: (view: View) => void;
 }) {
   let restored = false;
   createEffect(() => {
@@ -164,33 +233,36 @@ function syncWithUrl(state: {
     const params = new URLSearchParams(location.search);
     const pipeline = Math.max(0, entries.findIndex((e) => e.dir === params.get('pipeline')));
     state.setPipelineIndex(pipeline);
-    state.setScenarioIndex(entries[pipeline]!.scenarios.findIndex((s) => scenarioName(s.path) === params.get('scenario')));
+    state.setScenarioIndex(entries[pipeline]!.scenarios.findIndex((s) => s.name === params.get('scenario')));
     const [kind, id] = (params.get('select') ?? '').split(':');
     if ((kind === 'dataset' || kind === 'node') && id) state.setSelection({ kind, id });
     state.setOpen(params.get('open') ?? undefined);
+    const view = params.get('view');
+    const hasStory = entries[pipeline]!.story !== undefined;
+    state.setView(hasStory && (view === 'story' || view === 'split' || view === 'model') ? view : defaultView(entries[pipeline]));
   });
   createEffect(() => {
     const entry = state.entries()?.[state.pipelineIndex()];
     if (!entry || !restored) return;
     const params = new URLSearchParams({ pipeline: entry.dir });
     const scenario = entry.scenarios[state.scenarioIndex()];
-    if (scenario) params.set('scenario', scenarioName(scenario.path));
+    if (scenario) params.set('scenario', scenario.name);
     const selection = state.selection();
     if (selection) params.set('select', `${selection.kind}:${selection.id}`);
     const open = state.open();
     if (open) params.set('open', open);
+    if (entry.story) params.set('view', state.view());
     history.replaceState(null, '', `?${params}`);
   });
 }
 
-function scenarioName(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1).replace(/\.json$/, '');
+function defaultView(entry: PipelineEntry | undefined): View {
+  return entry?.story ? 'story' : 'model';
 }
 
 async function runEntry(entry: PipelineEntry, scenarioIndex: number): Promise<Runs> {
-  const reader = scopedReader(readText, entry.dir);
-  const baseline = await runPipeline(resolvePipeline(entry), semantics, reader);
-  const scenario = entry.scenarios[scenarioIndex]?.scenario;
+  const baseline = await runOf(entry, BASELINE);
+  const scenario = entry.scenarios[scenarioIndex];
   if (!scenario) return { result: baseline };
-  return { result: await runPipeline(resolvePipeline(entry, scenario), semantics, reader), baseline };
+  return { result: await runOf(entry, scenario.name), baseline };
 }

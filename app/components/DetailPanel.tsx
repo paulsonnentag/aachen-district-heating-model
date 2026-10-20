@@ -208,14 +208,14 @@ function groupVariables(
   ];
 }
 
-export function detailChart(tensor: Tensor, baseline?: Tensor): Element {
+export function detailChart(tensor: Tensor, baseline?: Tensor, width = 380): Element {
   const shape = shapeOf(tensor);
   if (shape.kind === 'series') {
     const { facet, rows } = facetRowsOf(tensor);
     const base = baseline ? facetRowsOf(baseline).rows : [];
     const fy = facet ? 'facet' : undefined;
     return P.plot({
-      width: 380,
+      width,
       height: facet ? 120 * new Set(rows.map((r) => r.facet)).size : 220,
       marginLeft: 56,
       marginRight: facet ? 56 : 20,
@@ -238,7 +238,7 @@ export function detailChart(tensor: Tensor, baseline?: Tensor): Element {
   }
   if (shape.kind === 'bars') {
     return P.plot({
-      width: 380,
+      width,
       height: 26 * rows.length + 40,
       marginLeft: 80,
       x: { grid: true, label: tensor.unit },
@@ -248,7 +248,7 @@ export function detailChart(tensor: Tensor, baseline?: Tensor): Element {
   }
   if (shape.kind !== 'grid') throw new Error('Unexpected shape');
   return P.plot({
-    width: 380,
+    width,
     height: 28 * new Set(rows.map((r) => r.row)).size + 50,
     marginLeft: 80,
     x: { axis: 'top', label: null, domain: domainOf(tensor, shape.cols) },

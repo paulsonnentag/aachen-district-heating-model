@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { provenanceKind } from '../../lib/runtime/pipeline';
 import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run';
 import { coordsOf, type Tensor } from '../../lib/runtime/tensor';
@@ -16,6 +16,8 @@ export function GraphView(props: {
   result: RunResult;
   baseline?: RunResult;
   selected?: Selection;
+  /** Scrolls this box to the centre each time it is set. */
+  reveal?: Selection;
   onSelect: (selection: Selection | undefined) => void;
   onOpen?: (nodeId: string) => void;
 }) {
@@ -30,6 +32,20 @@ export function GraphView(props: {
     const canvas = frame.closest('.canvas') as HTMLElement;
     setZoom(Math.min(1, (canvas.clientWidth - 16) / layout().width, (canvas.clientHeight - frame.offsetTop - 16) / layout().height));
   };
+  const centre = (target: Selection) => {
+    const box = layout().boxes.get(key(target));
+    const canvas = frame.closest('.canvas') as HTMLElement | null;
+    if (!box || !canvas) return;
+    canvas.scrollTo({
+      left: frame.offsetLeft + (box.x + box.width / 2) * zoom() - canvas.clientWidth / 2,
+      top: frame.offsetTop + (box.y + box.height / 2) * zoom() - canvas.clientHeight / 2,
+      behavior: 'smooth',
+    });
+  };
+  createEffect(() => {
+    const target = props.reveal;
+    if (target) requestAnimationFrame(() => centre(target));
+  });
 
   return (
     <>

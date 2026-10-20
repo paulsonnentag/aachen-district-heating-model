@@ -3,6 +3,18 @@
   "title": "Aachen heat transition",
   "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data comes from prep/heat-transition/prepare.py.",
   "sources": {
+    "ksg": {
+      "title": "Bundes-Klimaschutzgesetz § 3: national climate targets",
+      "url": "https://www.gesetze-im-internet.de/ksg/__3.html",
+      "publisher": "Bundesministerium der Justiz",
+      "verification": "primaryRead"
+    },
+    "wpg": {
+      "title": "Wärmeplanungsgesetz § 4: duty to adopt a heat plan",
+      "url": "https://www.gesetze-im-internet.de/wpg/__4.html",
+      "publisher": "Bundesministerium der Justiz",
+      "verification": "primaryRead"
+    },
     "nrw_kwp": {
       "title": "Raumwärmebedarfsmodell NRW, KWP data package for Aachen (05334002)",
       "url": "https://www.opengeodata.nrw.de/produkte/umwelt_klima/energie/kwp/KWP-NRW_05334002_Aachen_EPSG25832_Shape.zip",

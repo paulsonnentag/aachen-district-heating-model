@@ -1,4 +1,4 @@
-import { coordsOf, entries, reduceExcept, type Tensor } from '../lib/runtime/tensor';
+import { coordsOf, entries, reduceExcept, reduction, type Tensor } from '../lib/runtime/tensor';
 
 export type Shape =
   | { kind: 'scalar' }
@@ -96,13 +96,4 @@ export function lastValue(tensor: Tensor): { year: string; value: number } | und
 
 function drawnDims(tensor: Tensor): string[] {
   return tensor.dims.filter((d, i) => d !== 'year' && tensor.coords[i]!.length <= MAX_DRAWN);
-}
-
-/**
- * Amounts (buildings, MWh/year, m) add up over collapsed dimensions; intensities
- * (EUR/MWh, shares, years, rates) are averaged instead.
- */
-export function reduction(tensor: Tensor): 'sum' | 'mean' {
-  const unit = tensor.unit.replace(/\s/g, '').replace(/\/(year|a)$/, '');
-  return unit.includes('/') || ['dmnl', '1', 'year', ''].includes(unit) ? 'mean' : 'sum';
 }

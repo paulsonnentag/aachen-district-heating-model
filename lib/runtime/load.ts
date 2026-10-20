@@ -7,22 +7,30 @@ export type PipelineEntry = {
   raw: unknown;
   title: string;
   scenarios: ScenarioEntry[];
+  /** Path of the narrative document, relative to the pipelines root. */
+  story?: string;
 };
 
-export type ScenarioEntry = { path: string; scenario: Scenario };
+/** `name` is the file name without extension, e.g. "network-delay"; URLs and stories refer to scenarios by it. */
+export type ScenarioEntry = { path: string; name: string; scenario: Scenario };
 
 export async function loadIndex(readText: ReadText): Promise<PipelineEntry[]> {
   const index: PipelineIndex = IndexSchema.parse(JSON.parse(await readText('index.json')));
   return Promise.all(
-    index.pipelines.map(async ({ path, scenarios }) => {
+    index.pipelines.map(async ({ path, scenarios, story }) => {
       const raw: unknown = JSON.parse(await readText(path));
       return {
         path,
         dir: dirname(path),
         raw,
         title: titleOf(raw, path),
+        story,
         scenarios: await Promise.all(
-          scenarios.map(async (p) => ({ path: p, scenario: ScenarioSchema.parse(JSON.parse(await readText(p))) })),
+          scenarios.map(async (p) => ({
+            path: p,
+            name: basename(p).replace(/\.json$/, ''),
+            scenario: ScenarioSchema.parse(JSON.parse(await readText(p))),
+          })),
         ),
       };
     }),
@@ -56,6 +64,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function dirname(path: string): string {
   const i = path.lastIndexOf('/');
   return i < 0 ? '' : path.slice(0, i);
+}
+
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
 }
 
 function titleOf(raw: unknown, fallback: string): string {

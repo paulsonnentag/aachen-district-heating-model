@@ -1,7 +1,7 @@
 import * as P from '@observablehq/plot';
 import { createMemo, createSignal, For, Show } from 'solid-js';
-import { coordsOf, reduceExcept, select, type Tensor } from '../../lib/runtime/tensor';
-import { formatValue, reduction } from '../values';
+import { coordsOf, reduceExcept, reduction, select, type Tensor } from '../../lib/runtime/tensor';
+import { formatValue } from '../values';
 import { Plot } from './Plot';
 
 /** Cell of the European statistical grid, positioned by its south-west corner in EPSG:3035 metres. */
