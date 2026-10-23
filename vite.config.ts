@@ -1,15 +1,25 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadableStream } from 'node:stream/web';
 import { defineConfig, type Plugin } from 'vitest/config';
 import solid from 'vite-plugin-solid';
 
 export default defineConfig({
+  base: './',
   plugins: [solid(), remoteFiles()],
   publicDir: 'pipelines',
   worker: { format: 'es' },
-  build: { target: 'esnext' },
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      input: {
+        index: resolve(import.meta.dirname, 'index.html'),
+        workbench: resolve(import.meta.dirname, 'workbench.html'),
+        app: resolve(import.meta.dirname, 'app.html'),
+      },
+    },
+  },
   test: {
     include: ['lib/**/*.test.ts'],
     environment: 'node',
