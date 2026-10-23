@@ -63,18 +63,9 @@ export function DatasetInfo(props: { dataset: DatasetResult; result: RunResult; 
           </>
         )}
       </Show>
-      <Show when={producer()}>
-        {(node) => (
-          <>
-            <p class="muted">
-              Computed by <NodeLink id={node().node.id} actions={props.actions} />
-            </p>
-            <Show when={node().status === 'idle'}>
-              <p class="muted">Not computed yet: nothing in this run needed it.</p>
-              {compute('Compute it')}
-            </Show>
-          </>
-        )}
+      <Show when={producer()?.status === 'idle'}>
+        <p class="muted">Not computed yet: nothing in this run needed it.</p>
+        {compute('Compute it')}
       </Show>
       <Show when={catalog()}>
         {(dataset) => (
