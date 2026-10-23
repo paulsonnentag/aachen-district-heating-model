@@ -14,8 +14,6 @@ export default defineConfig({
     target: 'esnext',
     rollupOptions: {
       input: {
-        index: resolve(import.meta.dirname, 'index.html'),
-        workbench: resolve(import.meta.dirname, 'workbench.html'),
         app: resolve(import.meta.dirname, 'app.html'),
       },
     },

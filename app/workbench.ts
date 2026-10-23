@@ -8,16 +8,17 @@ export type Selection = { kind: 'dataset' | 'node' | 'group'; id: string };
 /** Runs work that updates the run's results in place, then refreshes the run so everything downstream shows them. */
 export type Compute = (work: (onLog: (line: string) => void) => Promise<void>, onLog: (line: string) => void) => Promise<void>;
 
-/** What the graph, the expanded boxes and the fullscreen view can do. */
+/** What the graph and the expanded boxes can do. */
 export type Actions = {
   select: (selection: Selection | undefined) => void;
-  /** Selects the item, expands it in place and scrolls to it; in fullscreen, shows it there instead. */
+  /** Selects the item, expands it in place and scrolls to it. */
   reveal: (selection: Selection) => void;
   toggle: (selection: Selection) => void;
   isExpanded: (selection: Selection) => boolean;
   /** Shows or hides the datasets a node or group reads and makes, and selects it. */
   unfold: (selection: Selection) => void;
-  fullscreen: (selection: Selection | undefined) => void;
+  /** Folds and collapses everything, back to the computations and the results. */
+  collapseAll: () => void;
   canOpen: (nodeId: string) => boolean;
   open: (nodeId: string) => void;
   compute: Compute;
@@ -27,7 +28,7 @@ export type Actions = {
 };
 
 /**
- * The state of one model pane: what is selected, unfolded, expanded in place, fullscreen, and which
+ * The state of one model pane: what is selected, unfolded, expanded in place, and which
  * view each dataset shows. It lives only as long as the page.
  */
 export function createWorkbench(options: {
@@ -39,7 +40,6 @@ export function createWorkbench(options: {
   const [selection, setSelection] = createSignal<Selection>();
   const [unfolded, setUnfolded] = createSignal<string[]>([]);
   const [expanded, setExpanded] = createSignal<string[]>([]);
-  const [full, setFull] = createSignal<Selection>();
   const [views, setViews] = createSignal<Record<string, ViewName>>({});
   const [reveal, setReveal] = createSignal<Selection | undefined>(undefined, { equals: false });
 
@@ -60,10 +60,7 @@ export function createWorkbench(options: {
   };
   const actions: Actions = {
     select: setSelection,
-    reveal: (target) => {
-      focus(target);
-      if (full()) setFull(target);
-    },
+    reveal: focus,
     toggle: (target) => {
       const key = keyOf(target);
       const open = expanded().includes(key);
@@ -76,7 +73,11 @@ export function createWorkbench(options: {
       setUnfolded((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
       setSelection(target);
     },
-    fullscreen: setFull,
+    collapseAll: () => {
+      setSelection(undefined);
+      setUnfolded([]);
+      setExpanded([]);
+    },
     canOpen: options.canOpen,
     open: options.open,
     compute: async (work, onLog) => {
@@ -90,10 +91,9 @@ export function createWorkbench(options: {
     setSelection(undefined);
     setUnfolded([]);
     setExpanded([]);
-    setFull(undefined);
     setViews({});
   };
-  return { selection, setSelection, unfolded, expanded, setExpanded, full, setFull, views, setViews, reveal, focus, actions, reset };
+  return { selection, setSelection, unfolded, expanded, setExpanded, views, setViews, reveal, focus, actions, reset };
 }
 
 export type Workbench = ReturnType<typeof createWorkbench>;

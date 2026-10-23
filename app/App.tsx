@@ -4,7 +4,6 @@ import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
 import type { RunResult } from '../lib/runtime/run';
 import { BASELINE, createRunCache } from '../lib/runtime/runs';
 import { createSemantics } from '../lib/semantics';
-import { Fullscreen } from './components/Fullscreen';
 import { GraphView } from './graph/GraphView';
 import type { FocusTarget, StoryContext } from './story/elements';
 import { download } from './python/download';
@@ -48,7 +47,6 @@ export function App() {
     canOpen: openable,
     open: (nodeId) => {
       if (!openable(nodeId)) return;
-      workbench.setFull(undefined);
       setOpen(nodeId);
     },
   });
@@ -80,7 +78,6 @@ export function App() {
         ? { kind: 'node', id: target.node }
         : undefined;
     setScenarioIndex(scenarios.findIndex((s) => s.name === target.scenario));
-    workbench.setFull(undefined);
     workbench.focus(selected);
     setOpen(target.open && target.node && openable(target.node) ? target.node : undefined);
     setView('split');
@@ -157,23 +154,18 @@ export function App() {
               <Show
                 when={r().result.nodes.get(open() ?? '')}
                 fallback={
-                  <>
-                    <div class="canvas">
-                      <Summary runs={r()} expectation={entry()?.scenarios[scenarioIndex()]?.scenario.expectation} />
-                      <GraphView
-                        result={r().result}
-                        baseline={r().baseline}
-                        selected={workbench.selection()}
-                        reveal={workbench.reveal()}
-                        unfolded={workbench.unfolded()}
-                        expanded={workbench.expanded()}
-                        actions={workbench.actions}
-                      />
-                    </div>
-                    <Show when={workbench.full()}>
-                      {(s) => <Fullscreen selection={s()} result={r().result} baseline={r().baseline} actions={workbench.actions} />}
-                    </Show>
-                  </>
+                  <div class="canvas">
+                    <Summary runs={r()} expectation={entry()?.scenarios[scenarioIndex()]?.scenario.expectation} />
+                    <GraphView
+                      result={r().result}
+                      baseline={r().baseline}
+                      selected={workbench.selection()}
+                      reveal={workbench.reveal()}
+                      unfolded={workbench.unfolded()}
+                      expanded={workbench.expanded()}
+                      actions={workbench.actions}
+                    />
+                  </div>
                 }
               >
                 {(node) => (

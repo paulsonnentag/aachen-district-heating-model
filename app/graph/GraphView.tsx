@@ -47,6 +47,7 @@ export function GraphView(props: {
     layout,
     () => anchor,
     (id) => (id.startsWith('frame:') ? `group:${id.slice('frame:'.length)}` : id.startsWith('group:') ? frameKey(id.slice('group:'.length)) : undefined),
+    (id) => id.startsWith('via:') || id.startsWith('port:'),
   );
   const boxOf = (id: string) => animated().boxes.get(id);
   const [hovered, setHovered] = createSignal<string>();
@@ -102,6 +103,9 @@ export function GraphView(props: {
         <span>{Math.round(zoom() * 100)}%</span>
         <button onClick={() => setZoom((z) => Math.min(2, z * 1.25))}>+</button>
         <button onClick={fit}>Fit</button>
+        <button onClick={() => props.actions.collapseAll()} disabled={props.unfolded.length === 0 && props.expanded.length === 0 && !props.selected}>
+          Collapse all
+        </button>
       </div>
       <div ref={frame} style={{ width: `${animated().width * zoom()}px`, height: `${animated().height * zoom()}px` }}>
         <div
@@ -123,7 +127,7 @@ export function GraphView(props: {
               {(edge) => (
                 <Show when={boxOf(edge.from) && boxOf(edge.to)}>
                   <path
-                    d={edgePath(boxOf(edge.from)!, boxOf(edge.to)!)}
+                    d={edgePath(boxOf(edge.from)!, boxOf(edge.to)!, edge.via.flatMap((id) => boxOf(id) ?? []))}
                     classList={{ edge: true, linked: isLinked(edge), dimmed: focus() !== undefined && !isLinked(edge) }}
                   />
                 </Show>
@@ -335,8 +339,8 @@ function ModelBox(props: {
 }
 
 /**
- * Details (for boxes whose click unfolds them instead), fullscreen and, once expanded, collapse;
- * they take the click so the box itself does not react.
+ * Details (for boxes whose click unfolds them instead) and, once expanded, collapse; they take the
+ * click so the box itself does not react.
  */
 function BoxButtons(props: { target: Selection; expanded: boolean; details?: boolean; actions: Actions }) {
   return (
@@ -352,15 +356,6 @@ function BoxButtons(props: { target: Selection; expanded: boolean; details?: boo
           <DetailsIcon />
         </button>
       </Show>
-      <button
-        title="Fullscreen"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.actions.fullscreen(props.target);
-        }}
-      >
-        <FullscreenIcon />
-      </button>
       <Show when={props.expanded}>
         <button
           title="Collapse"
@@ -380,14 +375,6 @@ function DetailsIcon() {
   return (
     <svg class="icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
       <path d="M1.5 2.5h9M1.5 6h9M1.5 9.5h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-    </svg>
-  );
-}
-
-function FullscreenIcon() {
-  return (
-    <svg class="icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M1 4.5V1h3.5M7.5 1H11v3.5M11 7.5V11H7.5M4.5 11H1V7.5" fill="none" stroke="currentColor" stroke-width="1.4" />
     </svg>
   );
 }
@@ -427,7 +414,6 @@ function GroupBox(props: {
       </button>
       <div class="model-title">
         <span class="model-label">{props.info.group.label}</span>
-        <BoxButtons target={target()} expanded={false} actions={props.actions} />
       </div>
       <Show when={props.info.group.description}>
         <p class="model-description">{props.info.group.description}</p>
@@ -458,17 +444,6 @@ function GroupFrame(props: { box: Box; info: GroupInfo; result: RunResult; selec
         <Show when={groupStatus(props.info).idle.length > 0}>
           <ComputeButton label="Compute all steps" inline run={(onLog) => computeGroup(props.info, props.result, props.actions, onLog)} />
         </Show>
-        <span class="box-buttons shown">
-          <button
-            title="Fullscreen"
-            onClick={(e) => {
-              e.stopPropagation();
-              props.actions.fullscreen(target());
-            }}
-          >
-            <FullscreenIcon />
-          </button>
-        </span>
       </div>
     </div>
   );
@@ -492,8 +467,8 @@ function GroupStatusNote(props: { info: GroupInfo }) {
 
 type Graph = {
   layout: Layout;
-  /** Edges between the boxes actually drawn. */
-  edges: LayoutEdge[];
+  /** Edges between the boxes actually drawn, through the waypoints of the columns they skip. */
+  edges: (LayoutEdge & { via: string[] })[];
 };
 
 /**
@@ -558,22 +533,41 @@ function buildGraph(
   const producerOf = new Map(result.pipeline.nodes.flatMap((node) => Object.values(node.outputs).map((name) => [name, node.id] as const)));
   for (const node of result.pipeline.nodes) nodeItem(node.id);
   for (const node of result.pipeline.nodes) {
-    const inputs = Object.values(node.inputs).map((name) => {
-      const producer = producerOf.get(name);
-      return datasetItem(name) ?? (producer ? nodeItem(producer) : undefined);
-    });
     const id = nodeItem(node.id);
-    for (const input of inputs) connect(input, id);
+    for (const name of Object.values(node.inputs)) {
+      const producer = producerOf.get(name);
+      // A collapsed group reading what it makes itself does so inside.
+      if (producer && nodeItem(producer) === id) continue;
+      connect(datasetItem(name) ?? (producer ? nodeItem(producer) : undefined), id);
+    }
     for (const name of Object.values(node.outputs)) connect(id, datasetItem(name));
   }
   for (const name of shown.keys()) datasetItem(name);
 
   const edgesIn = new Map<string, Map<string, LayoutEdge>>([...containers.keys()].map((c) => [c, new Map()]));
+  const addEdge = (container: string, from: string, to: string) => edgesIn.get(container)!.set(`${from}>${to}`, { from, to });
+  /** Where an edge between `id` (outside `container`) and a box inside enters or leaves the frame. */
+  const port = (container: string, side: 'in' | 'out', id: string) => {
+    const portId = `port:${container}:${side}:${id}`;
+    add(container, { id: portId, width: 0, height: 0, port: side });
+    return portId;
+  };
+  const portsOf = (edge: LayoutEdge) => {
+    const from = containerOf.get(edge.from)!;
+    const to = containerOf.get(edge.to)!;
+    return { out: from ? port(from, 'out', lift(edge.to)) : undefined, in: to ? port(to, 'in', lift(edge.from)) : undefined };
+  };
   for (const edge of drawn.values()) {
     const from = containerOf.get(edge.from)!;
     const to = containerOf.get(edge.to)!;
-    if (from === to) edgesIn.get(from)!.set(`${edge.from}>${edge.to}`, edge);
-    else edgesIn.get('')!.set(`${lift(edge.from)}>${lift(edge.to)}`, { from: lift(edge.from), to: lift(edge.to) });
+    if (from === to) {
+      addEdge(from, edge.from, edge.to);
+      continue;
+    }
+    addEdge('', lift(edge.from), lift(edge.to));
+    const ports = portsOf(edge);
+    if (ports.out) addEdge(from, edge.from, ports.out);
+    if (ports.in) addEdge(to, ports.in, edge.to);
   }
 
   const inner = new Map<string, Layout>();
@@ -585,13 +579,26 @@ function buildGraph(
   }
   const outer = layoutGraph(containers.get('')!, [...edgesIn.get('')!.values()]);
   const boxes = new Map(outer.boxes);
+  const routes = new Map(outer.routes);
   for (const [container, sub] of inner) {
     const origin = outer.boxes.get(frameKey(container))!;
     for (const [id, box] of sub.boxes) boxes.set(id, { ...box, x: box.x + origin.x, y: box.y + origin.y + FRAME_HEADER });
+    for (const [key, via] of sub.routes) routes.set(key, via);
   }
+  const via = (from: string, to: string) => routes.get(`${from}>${to}`) ?? [];
+  /** Inside the frame it leaves to its out-port, across the pipeline, then from the in-port of the frame it enters. */
+  const routeOf = (edge: LayoutEdge): string[] => {
+    if (containerOf.get(edge.from) === containerOf.get(edge.to)) return via(edge.from, edge.to);
+    const ports = portsOf(edge);
+    return [
+      ...(ports.out ? [...via(edge.from, ports.out), ports.out] : []),
+      ...via(lift(edge.from), lift(edge.to)),
+      ...(ports.in ? [ports.in, ...via(ports.in, edge.to)] : []),
+    ];
+  };
   return {
-    layout: { boxes, width: outer.width, height: outer.height },
-    edges: [...drawn.values()],
+    layout: { boxes, routes, width: outer.width, height: outer.height },
+    edges: [...drawn.values()].map((edge) => ({ ...edge, via: routeOf(edge) })),
   };
 }
 
@@ -623,13 +630,25 @@ function shownDatasets(
   return new Map([...shown].filter(([name]) => result.datasets.has(name)));
 }
 
-function edgePath(from: Box, to: Box): string {
-  const x1 = from.x + from.width;
-  const y1 = from.y + from.height / 2;
-  const x2 = to.x;
-  const y2 = to.y + to.height / 2;
-  const bend = Math.max(32, (x2 - x1) / 2);
-  return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+/** Curves between columns; straight through each waypoint, the gap the edge takes in a column it skips. */
+function edgePath(from: Box, to: Box, via: Box[]): string {
+  const middle = (box: Box) => box.y + box.height / 2;
+  const points = [
+    [from.x + from.width, middle(from)],
+    ...via.flatMap((box) => [
+      [box.x, middle(box)],
+      [box.x + box.width, middle(box)],
+    ]),
+    [to.x, middle(to)],
+  ] as [number, number][];
+  let d = `M ${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1]!;
+    const [x2, y2] = points[i]!;
+    const bend = Math.max(32, (x2 - x1) / 2);
+    d += i % 2 === 0 ? ` L ${x2} ${y2}` : ` C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+  }
+  return d;
 }
 
 function position(box: Box & { opacity?: number }) {

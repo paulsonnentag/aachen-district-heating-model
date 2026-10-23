@@ -271,18 +271,6 @@ model-figure, model-claim, model-assumptions { display: block; }
 .table-preview td { padding: 0 4px 0 0; height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-preview td.cell-number { text-align: right; }
 
-.fullscreen { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--panel); }
-.fullscreen-head { display: flex; align-items: baseline; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); }
-.fullscreen-head strong { font-size: 15px; }
-.fullscreen-head .spacer { flex: 1; }
-.fullscreen-head .close { border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); }
-.fullscreen-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 40px; }
-.fullscreen-dataset { display: flex; gap: 28px; align-items: flex-start; }
-.fullscreen-view { flex: 1; min-width: 0; }
-.fullscreen-info { width: 340px; flex-shrink: 0; }
-.fullscreen-text { max-width: 900px; }
-.fullscreen .table-scroll { max-height: calc(100vh - 260px); }
-
 .preview-scalar { display: flex; align-items: baseline; gap: 8px; padding-top: 10px; }
 .preview-scalar .number { font-size: 22px; font-weight: 600; }
 .preview-scalar .was { color: var(--muted); font-size: 11px; }

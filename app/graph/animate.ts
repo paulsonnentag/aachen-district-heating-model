@@ -9,12 +9,14 @@ const DURATION = 260;
 /**
  * Follows `target`, easing every box from where it is on screen to where it goes. Boxes that appear
  * slide out of the `anchor` box (or grow from their `twin` that leaves, e.g. a group box opening into
- * its frame) and fade in; boxes that go slide into it and fade out, staying drawn until they are gone.
+ * its frame) and fade in, unless they should appear `inPlace`; boxes that go slide into it and fade
+ * out, staying drawn until they are gone.
  */
 export function animateLayout(
   target: Accessor<Layout>,
   anchor: Accessor<string | undefined>,
   twin: (id: string) => string | undefined,
+  inPlace: (id: string) => boolean,
 ): Accessor<ShownLayout> {
   const [shown, setShown] = createSignal(still(target()));
   let request = 0;
@@ -34,7 +36,7 @@ export function animateLayout(
           const current = from.boxes.get(id);
           const pair = twin(id);
           const grown = pair !== undefined && !next.boxes.has(pair) ? from.boxes.get(pair) : undefined;
-          const start = current ?? (grown ? { ...grown, opacity: 1 } : { ...centredIn(box, origin), opacity: 0 });
+          const start = current ?? (grown ? { ...grown, opacity: 1 } : { ...centredIn(box, inPlace(id) ? undefined : origin), opacity: 0 });
           tracks.set(id, [start, end]);
         }
         for (const [id, box] of from.boxes) {
