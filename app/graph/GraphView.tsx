@@ -5,6 +5,7 @@ import { CACHE_LABELS, ComputeButton, computeGroup, DatasetInfo, NodeDetail, STA
 import { currentView, previewHeight, ValueView, valueSummary, viewsOf, ViewPicker, type ViewOption } from '../components/ValueView';
 import { keyOf, type Actions, type Selection } from '../workbench';
 import { consumersOf, groupsOf, groupStatus, type GroupInfo } from './groups';
+import { animateLayout } from './animate';
 import { layoutGraph, type Box, type Layout, type LayoutEdge, type LayoutItem } from './layout';
 
 const DATASET_WIDTH = 220;
@@ -40,6 +41,14 @@ export function GraphView(props: {
   };
   const graph = createMemo(() => buildGraph(props.result, groups(), new Set(props.expanded), shown(), datasetHeight));
   const layout = () => graph().layout;
+  /** The box the next change unfolds from or folds into; it stays where it is on screen while the rest moves. */
+  let anchor: string | undefined;
+  const animated = animateLayout(
+    layout,
+    () => anchor,
+    (id) => (id.startsWith('frame:') ? `group:${id.slice('frame:'.length)}` : id.startsWith('group:') ? frameKey(id.slice('group:'.length)) : undefined),
+  );
+  const boxOf = (id: string) => animated().boxes.get(id);
   const [hovered, setHovered] = createSignal<string>();
   const [zoom, setZoom] = createSignal(1);
   const focus = () => hovered() ?? (props.selected ? keyOf(props.selected) : undefined);
@@ -63,14 +72,25 @@ export function GraphView(props: {
     const target = props.reveal;
     if (target) requestAnimationFrame(() => centre(target));
   });
-  /** Unfolding re-lays out the graph; the clicked box stays where it was on screen. */
-  const unfold = (target: Selection) => {
-    const before = layout().boxes.get(keyOf(target));
-    props.actions.unfold(target);
-    const after = layout().boxes.get(keyOf(target));
-    const canvas = frame.closest('.canvas') as HTMLElement | null;
-    if (before && after && canvas) canvas.scrollBy((after.x - before.x) * zoom(), (after.y - before.y) * zoom());
+  let pinned: { id: string; x: number; y: number } | undefined;
+  const around = (target: Selection, change: () => void) => {
+    const id = keyOf(target);
+    const box = boxOf(id) ?? boxOf(frameKey(target.id));
+    anchor = id;
+    pinned = box && { id, x: box.x, y: box.y };
+    change();
+    anchor = undefined;
   };
+  createEffect(() => {
+    const now = animated();
+    if (!pinned) return;
+    const box = now.boxes.get(pinned.id) ?? (pinned.id.startsWith('group:') ? now.boxes.get(frameKey(pinned.id.slice('group:'.length))) : undefined);
+    const canvas = frame.closest('.canvas') as HTMLElement | null;
+    if (box && canvas) canvas.scrollBy((box.x - pinned.x) * zoom(), (box.y - pinned.y) * zoom());
+    pinned = box && now.moving ? { ...pinned, x: box.x, y: box.y } : undefined;
+  });
+  const unfold = (target: Selection) => around(target, () => props.actions.unfold(target));
+  const actions: Actions = { ...props.actions, toggle: (target) => around(target, () => props.actions.toggle(target)) };
   const isUnfolded = (kind: Selection['kind'], id: string) => props.unfolded.includes(keyOf({ kind, id }));
   const isSelected = (kind: Selection['kind'], id: string) => props.selected?.kind === kind && props.selected.id === id;
   const isExpanded = (kind: Selection['kind'], id: string) => props.expanded.includes(keyOf({ kind, id }));
@@ -83,46 +103,50 @@ export function GraphView(props: {
         <button onClick={() => setZoom((z) => Math.min(2, z * 1.25))}>+</button>
         <button onClick={fit}>Fit</button>
       </div>
-      <div ref={frame} style={{ width: `${layout().width * zoom()}px`, height: `${layout().height * zoom()}px` }}>
+      <div ref={frame} style={{ width: `${animated().width * zoom()}px`, height: `${animated().height * zoom()}px` }}>
         <div
           class="graph"
-          style={{ width: `${layout().width}px`, height: `${layout().height}px`, transform: `scale(${zoom()})` }}
+          style={{ width: `${animated().width}px`, height: `${animated().height}px`, transform: `scale(${zoom()})` }}
           onClick={() => props.actions.select(undefined)}
         >
-          <For each={graph().expanded}>
+          <For each={[...groups().keys()]}>
             {(id) => (
-              <GroupFrame
-                box={layout().boxes.get(frameKey(id))!}
-                info={groups().get(id)!}
-                result={props.result}
-                selected={isSelected('group', id)}
-                actions={props.actions}
-              />
+              <Show when={boxOf(frameKey(id))}>
+                {(box) => (
+                  <GroupFrame box={box()} info={groups().get(id)!} result={props.result} selected={isSelected('group', id)} actions={actions} />
+                )}
+              </Show>
             )}
           </For>
-          <svg class="edges" width={layout().width} height={layout().height}>
+          <svg class="edges" width={animated().width} height={animated().height}>
             <For each={graph().edges}>
               {(edge) => (
-                <path
-                  d={edgePath(layout().boxes.get(edge.from)!, layout().boxes.get(edge.to)!)}
-                  classList={{ edge: true, linked: isLinked(edge), dimmed: focus() !== undefined && !isLinked(edge) }}
-                />
+                <Show when={boxOf(edge.from) && boxOf(edge.to)}>
+                  <path
+                    d={edgePath(boxOf(edge.from)!, boxOf(edge.to)!)}
+                    classList={{ edge: true, linked: isLinked(edge), dimmed: focus() !== undefined && !isLinked(edge) }}
+                  />
+                </Show>
               )}
             </For>
           </svg>
-          <For each={graph().collapsed}>
+          <For each={[...groups().keys()]}>
             {(id) => {
               const itemId = keyOf({ kind: 'group', id });
               return (
-                <GroupBox
-                  box={layout().boxes.get(itemId)!}
-                  info={groups().get(id)!}
-                  selected={isSelected('group', id)}
-                  unfolded={isUnfolded('group', id)}
-                  onHover={(on) => setHovered(on ? itemId : undefined)}
-                  onUnfold={unfold}
-                  actions={props.actions}
-                />
+                <Show when={boxOf(itemId)}>
+                  {(box) => (
+                    <GroupBox
+                      box={box()}
+                      info={groups().get(id)!}
+                      selected={isSelected('group', id)}
+                      unfolded={isUnfolded('group', id)}
+                      onHover={(on) => setHovered(on ? itemId : undefined)}
+                      onUnfold={unfold}
+                      actions={actions}
+                    />
+                  )}
+                </Show>
               );
             }}
           </For>
@@ -130,7 +154,7 @@ export function GraphView(props: {
             {(node) => {
               const id = keyOf({ kind: 'node', id: node.id });
               return (
-                <Show when={layout().boxes.get(id)}>
+                <Show when={boxOf(id)}>
                   {(box) => (
                     <ModelBox
                       box={box()}
@@ -141,7 +165,7 @@ export function GraphView(props: {
                       unfolded={isUnfolded('node', node.id)}
                       onHover={(on) => setHovered(on ? id : undefined)}
                       onUnfold={unfold}
-                      actions={props.actions}
+                      actions={actions}
                     />
                   )}
                 </Show>
@@ -152,7 +176,7 @@ export function GraphView(props: {
             {(dataset) => {
               const id = keyOf({ kind: 'dataset', id: dataset.name });
               return (
-                <Show when={layout().boxes.get(id)}>
+                <Show when={boxOf(id)}>
                   {(box) => (
                     <DatasetBox
                       box={box()}
@@ -164,7 +188,7 @@ export function GraphView(props: {
                       selected={isSelected('dataset', dataset.name)}
                       expanded={isExpanded('dataset', dataset.name)}
                       onHover={(on) => setHovered(on ? id : undefined)}
-                      actions={props.actions}
+                      actions={actions}
                     />
                   )}
                 </Show>
@@ -470,8 +494,6 @@ type Graph = {
   layout: Layout;
   /** Edges between the boxes actually drawn. */
   edges: LayoutEdge[];
-  expanded: string[];
-  collapsed: string[];
 };
 
 /**
@@ -484,10 +506,11 @@ function buildGraph(
   result: RunResult,
   groups: Map<string, GroupInfo>,
   expanded: Set<string>,
-  shown: Set<string>,
+  shown: Map<string, string[]>,
   datasetHeight: (name: string) => number,
 ): Graph {
   const isExpanded = (kind: Selection['kind'], id: string) => expanded.has(keyOf({ kind, id }));
+  const consumers = consumersOf(result);
   const groupOfNode = new Map<string, string>();
   const groupOfDataset = new Map<string, string>();
   for (const [id, info] of groups) {
@@ -506,12 +529,21 @@ function buildGraph(
     containerOf.set(item.id, container);
     return item.id;
   };
+  const lift = (id: string) => (containerOf.get(id) ? frameKey(containerOf.get(id)!) : id);
+  /** The box an unfolded node or group (a reason to show a dataset) is drawn as, seen from `container`. */
+  const reasonItem = (key: string, container: string) => {
+    const id = key.slice(key.indexOf(':') + 1);
+    const item = key.startsWith('node:') ? nodeItem(id) : isExpanded('group', id) ? frameKey(id) : key;
+    return container ? item : lift(item);
+  };
   const datasetItem = (name: string): string | undefined => {
-    if (!shown.has(name)) return undefined;
+    const reasons = shown.get(name);
+    if (!reasons) return undefined;
     const group = groupOfDataset.get(name);
     if (group && !isExpanded('group', group)) return undefined;
     const size = isExpanded('dataset', name) ? EXPANDED_DATASET : { width: DATASET_WIDTH, height: datasetHeight(name) };
-    return add(group ?? '', { id: keyOf({ kind: 'dataset', id: name }), ...size });
+    const near = reasons.map((key) => reasonItem(key, group ?? ''));
+    return add(group ?? '', { id: keyOf({ kind: 'dataset', id: name }), ...size, slot: consumers.has(name), near });
   };
   const nodeItem = (nodeId: string): string => {
     const group = groupOfNode.get(nodeId);
@@ -524,6 +556,7 @@ function buildGraph(
     if (from && to && from !== to) drawn.set(`${from}>${to}`, { from, to });
   };
   const producerOf = new Map(result.pipeline.nodes.flatMap((node) => Object.values(node.outputs).map((name) => [name, node.id] as const)));
+  for (const node of result.pipeline.nodes) nodeItem(node.id);
   for (const node of result.pipeline.nodes) {
     const inputs = Object.values(node.inputs).map((name) => {
       const producer = producerOf.get(name);
@@ -533,9 +566,8 @@ function buildGraph(
     for (const input of inputs) connect(input, id);
     for (const name of Object.values(node.outputs)) connect(id, datasetItem(name));
   }
-  for (const name of shown) datasetItem(name);
+  for (const name of shown.keys()) datasetItem(name);
 
-  const lift = (id: string) => (containerOf.get(id) ? frameKey(containerOf.get(id)!) : id);
   const edgesIn = new Map<string, Map<string, LayoutEdge>>([...containers.keys()].map((c) => [c, new Map()]));
   for (const edge of drawn.values()) {
     const from = containerOf.get(edge.from)!;
@@ -560,21 +592,23 @@ function buildGraph(
   return {
     layout: { boxes, width: outer.width, height: outer.height },
     edges: [...drawn.values()],
-    expanded: [...inner.keys()],
-    collapsed: [...groups.keys()].filter((id) => !isExpanded('group', id) && boxes.has(keyOf({ kind: 'group', id }))),
   };
 }
 
-/** The model's results, what the unfolded nodes and groups read and make, and the datasets selected or expanded. */
+/**
+ * The model's results, what the unfolded nodes and groups read and make, and the datasets selected or
+ * expanded; each with the unfolded nodes and groups it is shown for.
+ */
 function shownDatasets(
   result: RunResult,
   groups: Map<string, GroupInfo>,
   unfolded: string[],
   expanded: string[],
   selected: Selection | undefined,
-): Set<string> {
+): Map<string, string[]> {
   const consumers = consumersOf(result);
-  const shown = new Set([...result.datasets.keys()].filter((name) => !consumers.has(name)));
+  const shown = new Map([...result.datasets.keys()].filter((name) => !consumers.has(name)).map((name) => [name, [] as string[]]));
+  const show = (name: string, reason?: string) => shown.set(name, [...(shown.get(name) ?? []), ...(reason ? [reason] : [])]);
   const datasetsOf = (key: string): string[] => {
     const node = result.nodes.get(key.slice('node:'.length))?.node;
     if (key.startsWith('node:') && node) return [...Object.values(node.inputs), ...Object.values(node.outputs)];
@@ -582,11 +616,11 @@ function shownDatasets(
     if (key.startsWith('group:') && info) return [...info.inputs, ...info.outputs];
     return [];
   };
-  for (const key of unfolded) for (const name of datasetsOf(key)) shown.add(name);
+  for (const key of unfolded) for (const name of datasetsOf(key)) show(name, key);
   for (const key of [...expanded, ...(selected ? [keyOf(selected)] : [])]) {
-    if (key.startsWith('dataset:')) shown.add(key.slice('dataset:'.length));
+    if (key.startsWith('dataset:')) show(key.slice('dataset:'.length));
   }
-  return new Set([...shown].filter((name) => result.datasets.has(name)));
+  return new Map([...shown].filter(([name]) => result.datasets.has(name)));
 }
 
 function edgePath(from: Box, to: Box): string {
@@ -598,8 +632,8 @@ function edgePath(from: Box, to: Box): string {
   return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
 }
 
-function position(box: Box) {
-  return { left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` };
+function position(box: Box & { opacity?: number }) {
+  return { left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px`, opacity: `${box.opacity ?? 1}` };
 }
 
 function frameKey(groupId: string): string {

@@ -1,4 +1,8 @@
-export type LayoutItem = { id: string; width: number; height: number };
+/**
+ * `slot` items are shown on demand: they are placed beside the items they link without changing where
+ * the others go, preferably beside those in `near` (the items they are shown for).
+ */
+export type LayoutItem = { id: string; width: number; height: number; slot?: boolean; near?: string[] };
 export type LayoutEdge = { from: string; to: string };
 export type Box = { x: number; y: number; width: number; height: number };
 export type Layout = { boxes: Map<string, Box>; width: number; height: number };
@@ -9,14 +13,59 @@ const PADDING = 24;
 const ORDER_SWEEPS = 8;
 const RELAX_ITERATIONS = 12;
 
-/** Left-to-right layered layout for a DAG. Items keep their input order as a tie-breaker. */
+/**
+ * Left-to-right layered layout for a DAG. Items keep their input order as a tie-breaker. Columns and
+ * their order come from the items that are not slots, with each slot bridged by edges from its
+ * predecessors to its successors, so showing or hiding slots never reorders anything. Slots go in
+ * gutter columns: after the column of what makes them, or before the column of what reads them.
+ */
 export function layoutGraph(items: LayoutItem[], edges: LayoutEdge[]): Layout {
-  const preds = neighbours(items, edges, 'to', 'from');
-  const succs = neighbours(items, edges, 'from', 'to');
-  const layerOf = assignLayers(items, preds, succs);
-  const layers = orderLayers(items, layerOf, preds, succs);
-  const boxes = placeBoxes(layers, items, preds, succs);
+  const slots = new Set(items.filter((i) => i.slot).map((i) => i.id));
+  if (slots.size === items.length) slots.clear();
+  const fixed = items.filter((i) => !slots.has(i.id));
+  const bridged = bridge(edges, slots);
+  const preds = neighbours(fixed, bridged, 'to', 'from');
+  const succs = neighbours(fixed, bridged, 'from', 'to');
+  const layerOf = assignLayers(fixed, preds, succs);
+  const layers = orderLayers(fixed, layerOf, preds, succs);
+  const columns = withGutters(layers, items.filter((i) => slots.has(i.id)), edges, layerOf);
+  const boxes = placeBoxes(columns, items, neighbours(items, edges, 'to', 'from'), neighbours(items, edges, 'from', 'to'));
   return measure(boxes);
+}
+
+/** The edges between non-slot items, with a path through a slot replaced by a direct edge. */
+function bridge(edges: LayoutEdge[], slots: Set<string>): LayoutEdge[] {
+  const into = new Map<string, string[]>();
+  const out = new Map<string, string[]>();
+  for (const { from, to } of edges) {
+    if (slots.has(to)) into.set(to, [...(into.get(to) ?? []), from]);
+    if (slots.has(from)) out.set(from, [...(out.get(from) ?? []), to]);
+  }
+  const direct = edges.filter((e) => !slots.has(e.from) && !slots.has(e.to));
+  const through = [...slots].flatMap((slot) => (into.get(slot) ?? []).flatMap((from) => (out.get(slot) ?? []).map((to) => ({ from, to }))));
+  return [...direct, ...through.filter((e) => !slots.has(e.from) && !slots.has(e.to) && e.from !== e.to)];
+}
+
+/** Puts a gutter before, between and after the layers and fills the gutters with the slots; empty ones are dropped. */
+function withGutters(layers: string[][], slots: LayoutItem[], edges: LayoutEdge[], layerOf: Map<string, number>): string[][] {
+  const index = new Map(layers.flatMap((layer) => layer.map((id, i) => [id, i] as const)));
+  const columns: string[][] = Array.from({ length: layers.length * 2 + 1 }, (_, c) => (c % 2 === 1 ? layers[(c - 1) / 2]! : []));
+  const placed = slots.map((slot, order) => {
+    const isNear = (id: string) => slot.near?.includes(id) ?? false;
+    const from = edges.filter((e) => e.to === slot.id && layerOf.has(e.from)).map((e) => e.from);
+    const readers = edges.filter((e) => e.from === slot.id && layerOf.has(e.to)).map((e) => e.to);
+    const to = readers.some(isNear) ? readers.filter(isNear) : readers;
+    // Beside what makes it, unless it is shown only for what reads it.
+    const afterMaker = from.length > 0 && (from.some(isNear) || !readers.some(isNear));
+    const anchors = afterMaker ? from : to;
+    const layer = (pick: (...values: number[]) => number) => pick(...anchors.map((id) => layerOf.get(id)!));
+    const column = anchors.length === 0 ? 0 : afterMaker ? 2 * layer(Math.max) + 2 : 2 * layer(Math.min);
+    const rank = anchors.length > 0 ? anchors.reduce((sum, id) => sum + index.get(id)!, 0) / anchors.length : Infinity;
+    return { id: slot.id, column, rank, order };
+  });
+  placed.sort((a, b) => a.rank - b.rank || a.order - b.order);
+  for (const slot of placed) columns[slot.column]!.push(slot.id);
+  return columns.filter((column) => column.length > 0);
 }
 
 function assignLayers(items: LayoutItem[], preds: Map<string, string[]>, succs: Map<string, string[]>): Map<string, number> {
