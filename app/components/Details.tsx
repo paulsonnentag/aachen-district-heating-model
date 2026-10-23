@@ -3,7 +3,7 @@ import type { Pipeline, Provenance, Source } from '../../lib/runtime/pipeline';
 import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run';
 import type { CacheInfo, VariableDescription } from '../../lib/semantics/types';
 import { groupOfNode, groupStatus, type GroupInfo } from '../graph/groups';
-import { CodeView, functionLines } from './CodeView';
+import { CodeView } from './CodeView';
 import { formatBytes } from '../values';
 import type { Actions } from '../workbench';
 
@@ -132,8 +132,25 @@ function SourceLink(props: { source?: Source }) {
   );
 }
 
-/** What a step is, its code (for a Python step, its function) and the variables it defines. */
+/** A Python step is its script; other steps show what they are, their code and the variables they define. */
 export function NodeDetail(props: { node: NodeResult; result: RunResult; actions: Actions }) {
+  const script = () => {
+    const code = props.node.description?.code;
+    return code?.language === 'python' ? code : undefined;
+  };
+  return (
+    <Show when={script()} fallback={<StepDetail {...props} />}>
+      {(code) => (
+        <div class="info">
+          <StepStatus node={props.node} actions={props.actions} />
+          <CodeView class="node-code" text={code().text} language="python" />
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function StepDetail(props: { node: NodeResult; result: RunResult; actions: Actions }) {
   const groups = () => groupVariables(props.node.description?.variables ?? [], props.node.node.inputs);
   const code = () => props.node.description?.code;
   const group = () => props.result.pipeline.groups.find((g) => g.id === groupOfNode(props.result, props.node.node.id));
@@ -142,7 +159,7 @@ export function NodeDetail(props: { node: NodeResult; result: RunResult; actions
       <p class="muted">
         <span class="semantics">{props.node.node.semantics}</span>
         <Show when={typeof props.node.node.model === 'string' ? (props.node.node.model as string) : code()?.path}>
-          {(path) => <>{' '}· <code>{path()}{code()?.entry ? ` ${code()!.entry}()` : ''}</code></>}
+          {(path) => <>{' '}· <code>{path()}</code></>}
         </Show>
         {' '}· {STATUS_LABELS[props.node.status]}
       </p>
@@ -160,30 +177,15 @@ export function NodeDetail(props: { node: NodeResult; result: RunResult; actions
       <Show when={props.node.node.description}>
         <p>{props.node.node.description}</p>
       </Show>
-      <Show when={props.node.status === 'idle' && props.node.compute}>
-        {(work) => (
-          <>
-            <p class="muted">Not computed: the results downstream were reused, so nothing in this run needed it.</p>
-            <ComputeButton label="Compute this step" run={(onLog) => props.actions.compute(work(), onLog)} />
-          </>
-        )}
-      </Show>
-      <Show when={props.node.error}>
-        <p class="error">{props.node.error}</p>
-      </Show>
-      <For each={props.node.warnings}>{(w) => <p class="warning">{w}</p>}</For>
+      <StepStatus node={props.node} actions={props.actions} />
       <Show when={props.node.cache}>{(cache) => <CacheNote cache={cache()} />}</Show>
       <Show when={code()}>
-        {(c) => {
-          const lines = c().entry ? functionLines(c().text, c().entry!) : undefined;
-          const text = lines ? c().text.split('\n').slice(lines.from - 1, lines.to).join('\n') : c().text;
-          return (
-            <>
-              <h3>Code</h3>
-              <CodeView class="node-code" text={text} language={c().language} firstLine={lines?.from} wrap />
-            </>
-          );
-        }}
+        {(c) => (
+          <>
+            <h3>Code</h3>
+            <CodeView class="node-code" text={c().text} language={c().language} wrap />
+          </>
+        )}
       </Show>
       <For each={groups()}>
         {(group) => (
@@ -227,6 +229,26 @@ export function NodeDetail(props: { node: NodeResult; result: RunResult; actions
         )}
       </For>
     </div>
+  );
+}
+
+/** Only what needs attention: an error, warnings, or a button when the step was not computed. */
+function StepStatus(props: { node: NodeResult; actions: Actions }) {
+  return (
+    <>
+      <Show when={props.node.status === 'idle' && props.node.compute}>
+        {(work) => (
+          <>
+            <p class="muted">Not computed: the results downstream were reused, so nothing in this run needed it.</p>
+            <ComputeButton label="Compute this step" run={(onLog) => props.actions.compute(work(), onLog)} />
+          </>
+        )}
+      </Show>
+      <Show when={props.node.error}>
+        <pre class="error node-error">{props.node.error}</pre>
+      </Show>
+      <For each={props.node.warnings}>{(w) => <p class="warning">{w}</p>}</For>
+    </>
   );
 }
 

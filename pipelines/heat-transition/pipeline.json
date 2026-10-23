@@ -294,8 +294,7 @@
       "semantics": "python",
       "description": "Decodes the base layer of the NRW heat demand model straight out of the zip: one row per heated building.",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "read_buildings",
+        "script": "models/read_buildings.py",
         "snapshot": "snapshots/read_buildings.json",
         "outputs": {
           "buildings": {
@@ -313,8 +312,7 @@
           }
         }
       },
-      "inputs": { "nrw": "nrw_heat_demand_model" },
-      "outputs": { "buildings": "buildings" }
+      "inputs": ["nrw_heat_demand_model"]
     },
     {
       "id": "read_projections",
@@ -322,8 +320,7 @@
       "semantics": "python",
       "description": "Decodes the three renovation layers of the NRW model for the heated buildings.",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "read_projections",
+        "script": "models/read_projections.py",
         "snapshot": "snapshots/read_projections.json",
         "outputs": {
           "building_projections": {
@@ -336,8 +333,7 @@
           }
         }
       },
-      "inputs": { "nrw": "nrw_heat_demand_model", "buildings": "buildings" },
-      "outputs": { "building_projections": "building_projections" }
+      "inputs": ["nrw_heat_demand_model", "buildings"]
     },
     {
       "id": "read_heat_lines",
@@ -345,8 +341,7 @@
       "semantics": "python",
       "description": "Decodes the heat line layer: street segments with heat demand.",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "read_heat_lines",
+        "script": "models/read_heat_lines.py",
         "snapshot": "snapshots/read_heat_lines.json",
         "outputs": {
           "heat_lines": {
@@ -360,8 +355,7 @@
           }
         }
       },
-      "inputs": { "nrw": "nrw_heat_demand_model" },
-      "outputs": { "heat_lines": "heat_lines" }
+      "inputs": ["nrw_heat_demand_model"]
     },
     {
       "id": "read_census",
@@ -369,8 +363,7 @@
       "semantics": "python",
       "description": "Streams the nationwide census grid and keeps the cells that hold heated buildings of the NRW model.",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "read_census",
+        "script": "models/read_census.py",
         "snapshot": "snapshots/read_census.json",
         "outputs": {
           "census_cells": {
@@ -380,8 +373,7 @@
           }
         }
       },
-      "inputs": { "census": "census_heating_grid", "buildings": "buildings" },
-      "outputs": { "census_cells": "census_cells" }
+      "inputs": ["census_heating_grid", "buildings"]
     },
     {
       "id": "select_cells",
@@ -389,8 +381,7 @@
       "description": "Keeps the census cells that have heating counts and at least one heated residential building: the 3,660 cells the model runs on.",
       "semantics": "python",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "select_cells",
+        "script": "models/select_cells.py",
         "snapshot": "snapshots/select_cells.json",
         "outputs": {
           "cells": {
@@ -399,8 +390,7 @@
           }
         }
       },
-      "inputs": { "census_cells": "census_cells", "buildings": "buildings" },
-      "outputs": { "cells": "cells" }
+      "inputs": ["census_cells", "buildings"]
     },
     {
       "id": "heating_stock",
@@ -465,8 +455,7 @@
       "description": "Splits the length of streets with heat demand among the cells their buildings stand in.",
       "semantics": "python",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "street_length",
+        "script": "models/street_length.py",
         "snapshot": "snapshots/street_length.json",
         "outputs": {
           "street_length": {
@@ -476,8 +465,7 @@
           }
         }
       },
-      "inputs": { "buildings": "buildings", "heat_lines": "heat_lines", "cells": "cells" },
-      "outputs": { "street_length": "street_length" }
+      "inputs": ["buildings", "heat_lines", "cells"]
     },
     {
       "id": "heat_pump_spf",
@@ -507,8 +495,7 @@
       "semantics": "python",
       "description": "Point-in-polygon join of the building centres with the heat plan block outlines, in EPSG:25832.",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "locate_buildings",
+        "script": "models/locate_buildings.py",
         "snapshot": "snapshots/locate_buildings.json",
         "outputs": {
           "building_blocks": {
@@ -521,8 +508,7 @@
           }
         }
       },
-      "inputs": { "buildings": "buildings", "heat_plan_blocks": "heat_plan_blocks" },
-      "outputs": { "building_blocks": "building_blocks" }
+      "inputs": ["buildings", "heat_plan_blocks"]
     },
     {
       "id": "dh_expansion_year",
@@ -530,8 +516,7 @@
       "description": "The first year the heat plan brings district or local heating to most of each cell's demand.",
       "semantics": "python",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "dh_expansion_year",
+        "script": "models/dh_expansion_year.py",
         "snapshot": "snapshots/dh_expansion_year.json",
         "outputs": {
           "dh_expansion_year": {
@@ -541,8 +526,7 @@
           }
         }
       },
-      "inputs": { "buildings": "buildings", "building_blocks": "building_blocks", "cells": "cells" },
-      "outputs": { "dh_expansion_year": "dh_expansion_year" }
+      "inputs": ["buildings", "building_blocks", "cells"]
     },
     {
       "id": "heat_plan_network_share",
@@ -710,7 +694,7 @@
     {
       "id": "area",
       "label": "Buildings and cells",
-      "description": "Who is in the model: Aachen's heated buildings and the census cells they stand in. Decoded from the NRW heat demand model and the census grid by models/prepare_cells.py in Pyodide.",
+      "description": "Who is in the model: Aachen's heated buildings and the census cells they stand in. Decoded from the NRW heat demand model and the census grid by Python scripts in Pyodide.",
       "nodes": ["read_buildings", "read_census", "select_cells"]
     },
     {

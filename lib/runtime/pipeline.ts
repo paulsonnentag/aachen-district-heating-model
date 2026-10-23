@@ -24,17 +24,34 @@ export const GroupSchema = z.lazy(() =>
   }),
 );
 
+/**
+ * Ports wired to datasets: `{ port: dataset }`, or a list of datasets when each port has its dataset's name.
+ * Outputs may be left out when the model names them in `model.outputs`.
+ */
 export const NodeSchema = z.lazy(() =>
-  z.object({
-    id: z.string(),
-    label: z.string(),
-    semantics: z.string(),
-    model: z.union([z.string(), z.record(z.string(), z.unknown())]),
-    inputs: z.record(z.string(), z.string()),
-    outputs: z.record(z.string(), z.string()),
-    description: z.string().optional(),
-  }),
+  z
+    .object({
+      id: z.string(),
+      label: z.string(),
+      semantics: z.string(),
+      model: z.union([z.string(), z.record(z.string(), z.unknown())]),
+      inputs: WiringSchema,
+      outputs: WiringSchema.optional(),
+      description: z.string().optional(),
+    })
+    .transform((node) => ({ ...node, outputs: node.outputs ?? sameNames(Object.keys(modelOutputs(node.model))) })),
 );
+
+const WiringSchema = z.union([z.record(z.string(), z.string()), z.array(z.string()).transform(sameNames)]);
+
+function sameNames(names: string[]): Record<string, string> {
+  return Object.fromEntries(names.map((name) => [name, name]));
+}
+
+function modelOutputs(model: string | Record<string, unknown>): object {
+  const outputs = typeof model === 'object' ? model.outputs : undefined;
+  return outputs && typeof outputs === 'object' ? outputs : {};
+}
 
 export const DatasetSchema = z.lazy(() => z.union([InlineDatasetSchema, FileDatasetSchema, RemoteFileDatasetSchema]));
 

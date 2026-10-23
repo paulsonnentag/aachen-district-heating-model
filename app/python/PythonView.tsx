@@ -3,14 +3,14 @@ import type { DatasetResult } from '../../lib/runtime/run';
 import { tableData, type Table } from '../../lib/runtime/table';
 import type { Tensor } from '../../lib/runtime/tensor';
 import type { NodeOutput } from '../../lib/semantics/types';
-import { CodeView, functionLines } from '../components/CodeView';
+import { CodeView } from '../components/CodeView';
 import { CacheNote } from '../components/Details';
 import type { ModelViewProps } from '../stockflow/StockFlowView';
 import { formatBytes, formatValue } from '../values';
 
 type Comparison = { port: string; dataset: string; difference: string | undefined };
 
-/** A Python node's function in its script, with a button that runs it again in this browser and checks the result against the pipeline's. */
+/** A Python step's script, with a button that runs it again in this browser and checks the result against the pipeline's. */
 export function PythonView(props: ModelViewProps) {
   const code = () => props.node.description?.code;
   const [log, setLog] = createSignal<string[]>([]);
@@ -52,7 +52,7 @@ export function PythonView(props: ModelViewProps) {
   return (
     <div class="py-view">
       <Show when={code()}>
-        {(c) => <CodeView class="py-code" text={c().text} language={c().language} highlight={c().entry ? functionLines(c().text, c().entry!) : undefined} />}
+        {(c) => <CodeView class="py-code" text={c().text} language={c().language} />}
       </Show>
       <aside class="py-side">
         <h3>Inputs</h3>
@@ -60,7 +60,7 @@ export function PythonView(props: ModelViewProps) {
           <For each={inputs()}>
             {(input) => (
               <li>
-                <code>{input.port}</code> ← <code>{input.dataset}</code>
+                <code>{input.dataset}</code>
                 <Show when={input.result?.file}>{(file) => <span class="muted"> · {file().format}, {formatBytes(file().size)}</span>}</Show>
                 <Show when={input.result?.table}>{(table) => <span class="muted"> · table, {table().rows.toLocaleString('en')} rows</span>}</Show>
               </li>
@@ -116,10 +116,6 @@ export function PythonView(props: ModelViewProps) {
               </table>
             </>
           )}
-        </Show>
-        <Show when={!running() && log().length === 0 && props.node.log?.length}>
-          <h3>Log of the run that made this result</h3>
-          <pre class="node-log">{props.node.log!.join('\n')}</pre>
         </Show>
       </aside>
     </div>

@@ -5,7 +5,7 @@ import { download } from './download';
 export type WorkerRequest = { id: number; job: PythonJob };
 export type WorkerReply =
   | { id: number; kind: 'log'; line: string }
-  | { id: number; kind: 'done'; outputs: Record<string, unknown>; log: string[] }
+  | { id: number; kind: 'done'; outputs: Record<string, unknown> }
   | { id: number; kind: 'error'; message: string };
 
 let pyodide: Promise<PyodideAPI> | undefined;

@@ -33,7 +33,7 @@ function runInWorker(): (job: PythonJob, onLog: (line: string) => void) => Promi
       if (!call) return;
       if (reply.kind === 'log') return call.onLog(reply.line);
       pending.delete(reply.id);
-      if (reply.kind === 'done') call.resolve({ outputs: reply.outputs, log: reply.log });
+      if (reply.kind === 'done') call.resolve({ outputs: reply.outputs });
       else call.reject(new Error(reply.message));
     };
     return started;
