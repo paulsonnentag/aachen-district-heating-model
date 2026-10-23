@@ -24,8 +24,13 @@ export function gridOf(tensor: Tensor): Grid | undefined {
   return undefined;
 }
 
+/** How big to draw a map: a fixed height, or the shape of the area up to `maxHeight`. */
+export type MapSize = { width: number; height?: number; maxHeight?: number; legend?: boolean };
+
+const DEFAULT_SIZE: MapSize = { width: 400 };
+
 /** Map of a tensor over grid cells at one year, with the other dimensions picked or combined. */
-export function CellMap(props: { tensor: Tensor; baseline?: Tensor }) {
+export function CellMap(props: { tensor: Tensor; baseline?: Tensor; size?: MapSize }) {
   const grid = createMemo(() => gridOf(props.tensor)!);
   const years = () => coordsOf(props.tensor, 'year');
   const others = () => props.tensor.dims.filter((d) => d !== 'year' && d !== grid().dim);
@@ -96,9 +101,18 @@ export function CellMap(props: { tensor: Tensor; baseline?: Tensor }) {
           </label>
         </Show>
       </div>
-      <Plot class="map" render={() => renderMap(grid().cells, values(), domain(), showDifference(), props.tensor.unit)} />
+      <Plot class="map" render={() => renderMap(grid().cells, values(), domain(), showDifference(), props.tensor.unit, props.size)} />
     </div>
   );
+}
+
+/** The map without controls: the last year, every other dimension combined. */
+export function cellMapPreview(tensor: Tensor, size: MapSize): Element {
+  const grid = gridOf(tensor)!;
+  const frames = cellFrames(tensor, grid.dim, {});
+  const last = coordsOf(frames, 'year')?.at(-1);
+  const frame = last === undefined ? frames : select(frames, { year: last });
+  return renderMap(grid.cells, alignTo(grid.cells, frame), colourDomain(frames.values, false), false, tensor.unit, size);
 }
 
 /** The tensor reduced to the grid dimension (and year, if any), with the picked coordinates fixed. */
@@ -135,19 +149,30 @@ function alignTo(cells: Cell[], frame: Tensor): Float64Array {
   return Float64Array.from(cells, (c) => frame.values[position.get(c.id) ?? -1] ?? NaN);
 }
 
-export function renderMap(cells: Cell[], values: Float64Array, domain: [number, number], diverging: boolean, unit: string): Element {
+export function renderMap(
+  cells: Cell[],
+  values: Float64Array,
+  domain: [number, number],
+  diverging: boolean,
+  unit: string,
+  size: MapSize = DEFAULT_SIZE,
+): Element {
   const data = cells.map((cell, i) => ({ ...cell, value: values[i]! }));
   const label = diverging ? `Δ ${unit}` : unit;
+  const [x0, y0, x1, y1] = cellBounds(cells);
+  const height = size.height ?? Math.round(Math.min(size.maxHeight ?? Infinity, size.width * aspectOf(x1 - x0, y1 - y0)));
+  const fitted = fitDomain([x0, x1], [y0, y1], size.width - 4, height - 6);
+  const legend = size.legend ?? true;
   return P.plot({
-    width: 400,
-    aspectRatio: 1,
+    width: size.width,
+    height,
     margin: 2,
     marginTop: 4,
-    x: { axis: null },
-    y: { axis: null },
+    x: { axis: null, domain: fitted.x },
+    y: { axis: null, domain: fitted.y },
     color: diverging
-      ? { type: 'linear', scheme: 'rdbu', domain, clamp: true, legend: true, label }
-      : { type: 'linear', scheme: 'ylgnbu', domain, clamp: true, legend: true, label },
+      ? { type: 'linear', scheme: 'rdbu', domain, clamp: true, legend, label }
+      : { type: 'linear', scheme: 'ylgnbu', domain, clamp: true, legend, label },
     marks: [
       P.rect(data, {
         x1: 'x',
@@ -160,6 +185,29 @@ export function renderMap(cells: Cell[], values: Float64Array, domain: [number, 
       }),
     ],
   });
+}
+
+/** Height over width of an area, kept between a wide strip and a tall page. */
+export function aspectOf(width: number, height: number): number {
+  return Math.min(1.5, Math.max(0.4, width > 0 ? height / width : 1));
+}
+
+function cellBounds(cells: Cell[]): [number, number, number, number] {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const c of cells) {
+    x0 = Math.min(x0, c.x);
+    y0 = Math.min(y0, c.y);
+    x1 = Math.max(x1, c.x + c.size);
+    y1 = Math.max(y1, c.y + c.size);
+  }
+  return [x0, y0, x1, y1];
+}
+
+/** Widens the shorter extent so one metre is as long across as up within a frame of the given size. */
+function fitDomain(x: [number, number], y: [number, number], width: number, height: number): { x: [number, number]; y: [number, number] } {
+  const k = Math.min(width / (x[1] - x[0] || 1), height / (y[1] - y[0] || 1));
+  const around = ([a, b]: [number, number], extent: number): [number, number] => [(a + b) / 2 - extent / 2, (a + b) / 2 + extent / 2];
+  return { x: around(x, width / k), y: around(y, height / k) };
 }
 
 export function parseCellId(id: string): Cell | undefined {

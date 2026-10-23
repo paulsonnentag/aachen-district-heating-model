@@ -12,7 +12,7 @@ import {
   type StoryTag,
 } from '../../lib/story/resolve';
 import { CellMap } from '../components/CellMap';
-import { detailChart } from '../components/DetailPanel';
+import { detailChart } from '../components/ValueView';
 import { Plot } from '../components/Plot';
 import { formatValue } from '../values';
 

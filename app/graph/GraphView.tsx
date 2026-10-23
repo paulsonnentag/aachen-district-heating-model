@@ -1,19 +1,22 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { provenanceKind } from '../../lib/runtime/pipeline';
 import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run';
-import { coordsOf, type Tensor } from '../../lib/runtime/tensor';
-import { ValuePreview } from '../components/ValuePreview';
-import { collapsedLabel, formatBytes, shapeOf } from '../values';
+import { CACHE_LABELS, ComputeButton, computeGroup, DatasetInfo, NodeDetail, STATUS_LABELS } from '../components/Details';
+import { currentView, previewHeight, ValueView, valueSummary, viewsOf, ViewPicker, type ViewOption } from '../components/ValueView';
+import { keyOf, type Actions, type Selection } from '../workbench';
 import { groupsOf, groupStatus, type GroupInfo } from './groups';
 import { layoutGraph, type Box, type Layout, type LayoutEdge, type LayoutItem } from './layout';
 
-export type Selection = { kind: 'dataset' | 'node' | 'group'; id: string };
-
 const DATASET_WIDTH = 220;
 const DATASET_HEADER = 44;
+const PICKER_HEIGHT = 18;
 const NODE_SIZE = { width: 200, height: 64 };
 const GROUP_SIZE = { width: 220, height: 76 };
 const FRAME_HEADER = 32;
+/** Expanded boxes have a fixed size, so the layout does not depend on what they draw; their content scrolls. */
+const EXPANDED_DATASET = { width: 480, height: 500 };
+const EXPANDED_NODE = { width: 420, height: 400 };
+const EXPANDED_VIEW_WIDTH = 440;
 
 export function GraphView(props: {
   result: RunResult;
@@ -22,16 +25,21 @@ export function GraphView(props: {
   /** Scrolls this box to the centre each time it is set. */
   reveal?: Selection;
   expanded: string[];
-  onSelect: (selection: Selection | undefined) => void;
-  onOpen?: (nodeId: string) => void;
-  onToggleGroup: (groupId: string) => void;
+  actions: Actions;
 }) {
   const groups = createMemo(() => groupsOf(props.result));
-  const graph = createMemo(() => buildGraph(props.result, groups(), new Set(props.expanded)));
+  const viewOf = (dataset: DatasetResult) =>
+    currentView(viewsOf(dataset), props.actions.viewOf(dataset.name), props.result.pipeline.views[dataset.name]);
+  const datasetHeight = (name: string) => {
+    const dataset = props.result.datasets.get(name);
+    const view = dataset && viewOf(dataset);
+    return DATASET_HEADER + previewHeight(dataset, view?.name) + (view ? PICKER_HEIGHT : 0);
+  };
+  const graph = createMemo(() => buildGraph(props.result, groups(), new Set(props.expanded), datasetHeight));
   const layout = () => graph().layout;
   const [hovered, setHovered] = createSignal<string>();
   const [zoom, setZoom] = createSignal(1);
-  const focus = () => hovered() ?? (props.selected ? key(props.selected) : undefined);
+  const focus = () => hovered() ?? (props.selected ? keyOf(props.selected) : undefined);
   const isLinked = (edge: LayoutEdge) => focus() !== undefined && (edge.from === focus() || edge.to === focus());
   let frame!: HTMLDivElement;
   const fit = () => {
@@ -39,7 +47,7 @@ export function GraphView(props: {
     setZoom(Math.min(1, (canvas.clientWidth - 16) / layout().width, (canvas.clientHeight - frame.offsetTop - 16) / layout().height));
   };
   const centre = (target: Selection) => {
-    const box = layout().boxes.get(key(target));
+    const box = layout().boxes.get(keyOf(target));
     const canvas = frame.closest('.canvas') as HTMLElement | null;
     if (!box || !canvas) return;
     canvas.scrollTo({
@@ -53,6 +61,7 @@ export function GraphView(props: {
     if (target) requestAnimationFrame(() => centre(target));
   });
   const isSelected = (kind: Selection['kind'], id: string) => props.selected?.kind === kind && props.selected.id === id;
+  const isExpanded = (kind: Selection['kind'], id: string) => props.expanded.includes(keyOf({ kind, id }));
 
   return (
     <>
@@ -66,16 +75,16 @@ export function GraphView(props: {
         <div
           class="graph"
           style={{ width: `${layout().width}px`, height: `${layout().height}px`, transform: `scale(${zoom()})` }}
-          onClick={() => props.onSelect(undefined)}
+          onClick={() => props.actions.select(undefined)}
         >
           <For each={graph().expanded}>
             {(id) => (
               <GroupFrame
                 box={layout().boxes.get(frameKey(id))!}
                 info={groups().get(id)!}
+                result={props.result}
                 selected={isSelected('group', id)}
-                onSelect={() => props.onSelect({ kind: 'group', id })}
-                onCollapse={() => props.onToggleGroup(id)}
+                actions={props.actions}
               />
             )}
           </For>
@@ -91,32 +100,32 @@ export function GraphView(props: {
           </svg>
           <For each={graph().collapsed}>
             {(id) => {
-              const itemId = key({ kind: 'group', id });
+              const itemId = keyOf({ kind: 'group', id });
               return (
                 <GroupBox
                   box={layout().boxes.get(itemId)!}
                   info={groups().get(id)!}
                   selected={isSelected('group', id)}
                   onHover={(on) => setHovered(on ? itemId : undefined)}
-                  onSelect={() => props.onSelect({ kind: 'group', id })}
-                  onExpand={() => props.onToggleGroup(id)}
+                  actions={props.actions}
                 />
               );
             }}
           </For>
           <For each={props.result.pipeline.nodes}>
             {(node) => {
-              const id = key({ kind: 'node', id: node.id });
+              const id = keyOf({ kind: 'node', id: node.id });
               return (
                 <Show when={layout().boxes.get(id)}>
                   {(box) => (
                     <ModelBox
                       box={box()}
-                      result={props.result.nodes.get(node.id)!}
+                      node={props.result.nodes.get(node.id)!}
+                      result={props.result}
                       selected={isSelected('node', node.id)}
+                      expanded={isExpanded('node', node.id)}
                       onHover={(on) => setHovered(on ? id : undefined)}
-                      onSelect={() => props.onSelect({ kind: 'node', id: node.id })}
-                      onOpen={() => props.onOpen?.(node.id)}
+                      actions={props.actions}
                     />
                   )}
                 </Show>
@@ -125,7 +134,7 @@ export function GraphView(props: {
           </For>
           <For each={[...props.result.datasets.values()]}>
             {(dataset) => {
-              const id = key({ kind: 'dataset', id: dataset.name });
+              const id = keyOf({ kind: 'dataset', id: dataset.name });
               return (
                 <Show when={layout().boxes.get(id)}>
                   {(box) => (
@@ -133,9 +142,13 @@ export function GraphView(props: {
                       box={box()}
                       dataset={dataset}
                       baseline={props.baseline?.datasets.get(dataset.name)}
+                      result={props.result}
+                      options={viewsOf(dataset)}
+                      view={viewOf(dataset)}
                       selected={isSelected('dataset', dataset.name)}
+                      expanded={isExpanded('dataset', dataset.name)}
                       onHover={(on) => setHovered(on ? id : undefined)}
-                      onSelect={() => props.onSelect({ kind: 'dataset', id: dataset.name })}
+                      actions={props.actions}
                     />
                   )}
                 </Show>
@@ -148,90 +161,190 @@ export function GraphView(props: {
   );
 }
 
-function ModelBox(props: {
+function DatasetBox(props: {
   box: Box;
-  result: NodeResult;
+  dataset: DatasetResult;
+  baseline?: DatasetResult;
+  result: RunResult;
+  options: ViewOption[];
+  view?: ViewOption;
   selected: boolean;
+  expanded: boolean;
   onHover: (on: boolean) => void;
-  onSelect: () => void;
-  onOpen: () => void;
+  actions: Actions;
 }) {
+  const target = (): Selection => ({ kind: 'dataset', id: props.dataset.name });
+  const badge = () => {
+    const producer = props.dataset.producer;
+    if ('node' in producer) {
+      const empty = !props.dataset.tensor && !props.dataset.table && !props.dataset.error;
+      return empty ? { text: 'on demand', class: 'on-demand' } : { text: 'computed', class: 'computed' };
+    }
+    const kind = provenanceKind(producer.catalog.source);
+    return { text: kind, class: kind };
+  };
+  const picker = () => (
+    <ViewPicker options={props.options} current={props.view} onChange={(view) => props.actions.setView(props.dataset.name, view)} />
+  );
   return (
     <div
-      class={`box model status-${props.result.status}`}
-      classList={{ selected: props.selected }}
+      class="box dataset"
+      classList={{ selected: props.selected, expanded: props.expanded }}
       style={position(props.box)}
       onMouseEnter={() => props.onHover(true)}
       onMouseLeave={() => props.onHover(false)}
       onClick={(e) => {
         e.stopPropagation();
-        props.onSelect();
-      }}
-      onDblClick={(e) => {
-        e.stopPropagation();
-        props.onOpen();
+        if (props.expanded) props.actions.select(target());
+        else props.actions.toggle(target());
       }}
     >
-      <div class="model-label">{props.result.node.label}</div>
-      <div class="model-meta">
-        <span class="semantics">{props.result.node.semantics}</span>
-        <Show when={props.result.status !== 'ok'}>
-          <span class="status">{STATUS_LABELS[props.result.status]}</span>
-        </Show>
-        <Show when={props.result.warnings.length > 0}>
-          <span class="status warn">{props.result.warnings.length} warning{props.result.warnings.length > 1 ? 's' : ''}</span>
-        </Show>
-        <Show when={props.result.cache}>{(cache) => <span class="cache-origin">{CACHE_LABELS[cache().origin]}</span>}</Show>
+      <div
+        class="dataset-head"
+        onClick={(e) => {
+          if (!props.expanded) return;
+          e.stopPropagation();
+          props.actions.toggle(target());
+        }}
+      >
+        <span class="dataset-name">{props.dataset.name}</span>
+        <span class={`badge ${badge().class}`}>{badge().text}</span>
+        <BoxButtons target={target()} expanded={props.expanded} actions={props.actions} />
       </div>
+      <div class="dataset-unit">{valueSummary(props.dataset)}</div>
+      <Show
+        when={props.expanded}
+        fallback={
+          <>
+            <div class="preview" style={{ height: `${previewHeight(props.dataset, props.view?.name)}px` }}>
+              <ValueView dataset={props.dataset} baseline={props.baseline} view={props.view?.name} />
+            </div>
+            {picker()}
+          </>
+        }
+      >
+        <div class="box-body">
+          <ValueView dataset={props.dataset} baseline={props.baseline} view={props.view?.name} large width={EXPANDED_VIEW_WIDTH} maxHeight={420} />
+          {picker()}
+          <DatasetInfo dataset={props.dataset} result={props.result} actions={props.actions} />
+        </div>
+      </Show>
     </div>
   );
 }
 
-export const CACHE_LABELS = { snapshot: 'from snapshot', stored: 'from browser cache', computed: 'computed' } as const;
-export const STATUS_LABELS: Record<NodeResult['status'], string> = {
-  ok: 'ok',
-  error: 'error',
-  idle: 'not computed',
-  skipped: 'skipped',
-  invalid: 'invalid',
-};
-
-function GroupBox(props: {
+function ModelBox(props: {
   box: Box;
-  info: GroupInfo;
+  node: NodeResult;
+  result: RunResult;
   selected: boolean;
+  expanded: boolean;
   onHover: (on: boolean) => void;
-  onSelect: () => void;
-  onExpand: () => void;
+  actions: Actions;
 }) {
+  const target = (): Selection => ({ kind: 'node', id: props.node.node.id });
+  return (
+    <div
+      class={`box model status-${props.node.status}`}
+      classList={{ selected: props.selected, expanded: props.expanded }}
+      style={position(props.box)}
+      onMouseEnter={() => props.onHover(true)}
+      onMouseLeave={() => props.onHover(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (props.expanded) props.actions.select(target());
+        else props.actions.toggle(target());
+      }}
+    >
+      <div
+        class="model-head"
+        onClick={(e) => {
+          if (!props.expanded) return;
+          e.stopPropagation();
+          props.actions.toggle(target());
+        }}
+      >
+        <div class="model-title">
+          <span class="model-label">{props.node.node.label}</span>
+          <BoxButtons target={target()} expanded={props.expanded} actions={props.actions} />
+        </div>
+        <div class="model-meta">
+          <span class="semantics">{props.node.node.semantics}</span>
+          <Show when={props.node.status !== 'ok'}>
+            <span class="status">{STATUS_LABELS[props.node.status]}</span>
+          </Show>
+          <Show when={props.node.warnings.length > 0}>
+            <span class="status warn">{props.node.warnings.length} warning{props.node.warnings.length > 1 ? 's' : ''}</span>
+          </Show>
+          <Show when={props.node.cache}>{(cache) => <span class="cache-origin">{CACHE_LABELS[cache().origin]}</span>}</Show>
+        </div>
+      </div>
+      <Show when={props.expanded}>
+        <div class="box-body">
+          <NodeDetail node={props.node} result={props.result} actions={props.actions} />
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+/** Fullscreen and, once expanded, collapse; they take the click so the box itself does not toggle. */
+function BoxButtons(props: { target: Selection; expanded: boolean; actions: Actions }) {
+  return (
+    <span class="box-buttons" classList={{ shown: props.expanded }}>
+      <button
+        title="Fullscreen"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.actions.fullscreen(props.target);
+        }}
+      >
+        <FullscreenIcon />
+      </button>
+      <Show when={props.expanded}>
+        <button
+          title="Collapse"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.actions.toggle(props.target);
+          }}
+        >
+          ×
+        </button>
+      </Show>
+    </span>
+  );
+}
+
+function FullscreenIcon() {
+  return (
+    <svg class="icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M1 4.5V1h3.5M7.5 1H11v3.5M11 7.5V11H7.5M4.5 11H1V7.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+    </svg>
+  );
+}
+
+function GroupBox(props: { box: Box; info: GroupInfo; selected: boolean; onHover: (on: boolean) => void; actions: Actions }) {
   const status = () => groupStatus(props.info);
+  const target = (): Selection => ({ kind: 'group', id: props.info.group.id });
   return (
     <div
       class={`box model group status-${status().status}`}
       classList={{ selected: props.selected }}
       style={position(props.box)}
+      title={props.info.group.description}
       onMouseEnter={() => props.onHover(true)}
       onMouseLeave={() => props.onHover(false)}
       onClick={(e) => {
         e.stopPropagation();
-        props.onSelect();
-      }}
-      onDblClick={(e) => {
-        e.stopPropagation();
-        props.onExpand();
+        props.actions.toggle(target());
       }}
     >
-      <button
-        class="group-toggle"
-        title="Show the steps"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onExpand();
-        }}
-      >
-        ▸
-      </button>
-      <div class="model-label">{props.info.group.label}</div>
+      <span class="group-toggle">▸</span>
+      <div class="model-title">
+        <span class="model-label">{props.info.group.label}</span>
+        <BoxButtons target={target()} expanded={false} actions={props.actions} />
+      </div>
       <div class="model-meta">
         <span class="semantics">{props.info.nodes.length} steps</span>
         <GroupStatusNote info={props.info} />
@@ -240,33 +353,36 @@ function GroupBox(props: {
   );
 }
 
-function GroupFrame(props: { box: Box; info: GroupInfo; selected: boolean; onSelect: () => void; onCollapse: () => void }) {
+function GroupFrame(props: { box: Box; info: GroupInfo; result: RunResult; selected: boolean; actions: Actions }) {
+  const target = (): Selection => ({ kind: 'group', id: props.info.group.id });
   return (
     <div class="group-frame" classList={{ selected: props.selected }} style={position(props.box)}>
       <div
         class="group-head"
+        title={props.info.group.description}
         onClick={(e) => {
           e.stopPropagation();
-          props.onSelect();
-        }}
-        onDblClick={(e) => {
-          e.stopPropagation();
-          props.onCollapse();
+          props.actions.toggle(target());
         }}
       >
-        <button
-          class="group-toggle"
-          title="Collapse into one box"
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onCollapse();
-          }}
-        >
-          ▾
-        </button>
+        <span class="group-toggle">▾</span>
         <span class="group-label">{props.info.group.label}</span>
         <span class="muted">{props.info.nodes.length} steps</span>
         <GroupStatusNote info={props.info} />
+        <Show when={groupStatus(props.info).idle.length > 0}>
+          <ComputeButton label="Compute all steps" inline run={(onLog) => computeGroup(props.info, props.result, props.actions, onLog)} />
+        </Show>
+        <span class="box-buttons shown">
+          <button
+            title="Fullscreen"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.actions.fullscreen(target());
+            }}
+          >
+            <FullscreenIcon />
+          </button>
+        </span>
       </div>
     </div>
   );
@@ -288,76 +404,6 @@ function GroupStatusNote(props: { info: GroupInfo }) {
   );
 }
 
-function DatasetBox(props: {
-  box: Box;
-  dataset: DatasetResult;
-  baseline?: DatasetResult;
-  selected: boolean;
-  onHover: (on: boolean) => void;
-  onSelect: () => void;
-}) {
-  const badge = () => {
-    const producer = props.dataset.producer;
-    if ('node' in producer) {
-      const empty = !props.dataset.tensor && !props.dataset.table && !props.dataset.error;
-      return empty ? { text: 'on demand', class: 'on-demand' } : { text: 'computed', class: 'computed' };
-    }
-    const kind = provenanceKind(producer.catalog.source);
-    return { text: kind, class: kind };
-  };
-  return (
-    <div
-      class="box dataset"
-      classList={{ selected: props.selected }}
-      style={position(props.box)}
-      onMouseEnter={() => props.onHover(true)}
-      onMouseLeave={() => props.onHover(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        props.onSelect();
-      }}
-    >
-      <div class="dataset-head">
-        <span class="dataset-name">{props.dataset.name}</span>
-        <span class={`badge ${badge().class}`}>{badge().text}</span>
-      </div>
-      <Show
-        when={props.dataset.file}
-        fallback={
-          <Show
-            when={props.dataset.table}
-            fallback={
-              <>
-                <div class="dataset-unit">
-                  {props.dataset.tensor?.unit ?? ''}
-                  <Show when={props.dataset.tensor && props.dataset.tensor.dims.length > 0}>
-                    <span class="dims"> [{props.dataset.tensor!.dims.join(' × ')}]</span>
-                  </Show>
-                </div>
-                <ValuePreview tensor={props.dataset.tensor} baseline={props.baseline?.tensor} error={props.dataset.error} />
-              </>
-            }
-          >
-            {(table) => (
-              <div class="dataset-file">
-                <span>table · {table().rows.toLocaleString('en')} rows × {Object.keys(table().columns).length} columns</span>
-                <span class="muted">{Object.keys(table().columns).join(', ')}</span>
-              </div>
-            )}
-          </Show>
-        }
-      >
-        {(file) => (
-          <div class="dataset-file">
-            <span>{file().format} · {formatBytes(file().size)}</span>
-            <span class="muted">{new URL(file().url).host}</span>
-          </div>
-        )}
-      </Show>
-    </div>
-  );
-}
-
 type Graph = {
   layout: Layout;
   /** Edges between the boxes actually drawn. */
@@ -370,7 +416,8 @@ type Graph = {
  * A collapsed group is one box and hides the datasets only its steps use. An expanded group is laid
  * out on its own and placed in the pipeline's layout as one framed item, so its steps stay together.
  */
-function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded: Set<string>): Graph {
+function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded: Set<string>, datasetHeight: (name: string) => number): Graph {
+  const isExpanded = (kind: Selection['kind'], id: string) => expanded.has(keyOf({ kind, id }));
   const groupOfNode = new Map<string, string>();
   const groupOfDataset = new Map<string, string>();
   for (const [id, info] of groups) {
@@ -391,13 +438,14 @@ function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded:
   };
   const datasetItem = (name: string): string | undefined => {
     const group = groupOfDataset.get(name);
-    if (group && !expanded.has(group)) return undefined;
-    return add(group ?? '', { id: key({ kind: 'dataset', id: name }), width: DATASET_WIDTH, height: datasetHeight(result.datasets.get(name)) });
+    if (group && !isExpanded('group', group)) return undefined;
+    const size = isExpanded('dataset', name) ? EXPANDED_DATASET : { width: DATASET_WIDTH, height: datasetHeight(name) };
+    return add(group ?? '', { id: keyOf({ kind: 'dataset', id: name }), ...size });
   };
   const nodeItem = (nodeId: string): string => {
     const group = groupOfNode.get(nodeId);
-    if (group && !expanded.has(group)) return add('', { id: key({ kind: 'group', id: group }), ...GROUP_SIZE });
-    return add(group ?? '', { id: key({ kind: 'node', id: nodeId }), ...NODE_SIZE });
+    if (group && !isExpanded('group', group)) return add('', { id: keyOf({ kind: 'group', id: group }), ...GROUP_SIZE });
+    return add(group ?? '', { id: keyOf({ kind: 'node', id: nodeId }), ...(isExpanded('node', nodeId) ? EXPANDED_NODE : NODE_SIZE) });
   };
 
   const drawn = new Map<string, LayoutEdge>();
@@ -438,30 +486,8 @@ function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded:
     layout: { boxes, width: outer.width, height: outer.height },
     edges: [...drawn.values()],
     expanded: [...inner.keys()],
-    collapsed: [...groups.keys()].filter((id) => !expanded.has(id) && boxes.has(key({ kind: 'group', id }))),
+    collapsed: [...groups.keys()].filter((id) => !isExpanded('group', id) && boxes.has(keyOf({ kind: 'group', id }))),
   };
-}
-
-function datasetHeight(dataset: DatasetResult | undefined): number {
-  if (dataset?.file) return DATASET_HEADER + 8;
-  if (dataset?.table) return DATASET_HEADER + 12;
-  const tensor = dataset?.tensor;
-  if (!tensor) return DATASET_HEADER + 28;
-  return previewHeight(tensor) + (collapsedLabel(tensor) ? 12 : 0);
-}
-
-function previewHeight(tensor: Tensor): number {
-  const shape = shapeOf(tensor);
-  switch (shape.kind) {
-    case 'scalar':
-      return DATASET_HEADER + 30;
-    case 'series':
-      return DATASET_HEADER + 54;
-    case 'bars':
-      return DATASET_HEADER + 14 * coordsOf(tensor, shape.by)!.length + 10;
-    case 'grid':
-      return DATASET_HEADER + 14 * coordsOf(tensor, shape.rows)!.length + 26;
-  }
 }
 
 function edgePath(from: Box, to: Box): string {
@@ -475,10 +501,6 @@ function edgePath(from: Box, to: Box): string {
 
 function position(box: Box) {
   return { left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` };
-}
-
-function key(selection: Selection): string {
-  return `${selection.kind}:${selection.id}`;
 }
 
 function frameKey(groupId: string): string {

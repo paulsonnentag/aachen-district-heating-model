@@ -330,13 +330,13 @@ function check(node: PipelineNode, model: AggregateModel): Issue[] {
 
 function describe(node: PipelineNode, model: AggregateModel): ModelDescription {
   const rows = node.inputs[model.rows] ?? model.rows;
+  const over = model.over && (node.inputs[model.over.split('.')[0]!] ?? model.over);
   const scope = [
-    `rows of ${rows}`,
-    model.where ? `where ${model.where}` : undefined,
-    model.by ? `per ${model.by}${model.over ? ` of ${node.inputs[model.over.split('.')[0]!] ?? model.over}` : ''}` : undefined,
-  ]
-    .filter(Boolean)
-    .join(', ');
+    `Over the rows of ${rows}`,
+    model.where ? ` where ${model.where}` : '',
+    model.by ? `, per ${model.by}` : '',
+    over ? ` in the order of ${over}` : '',
+  ].join('');
   return {
     variables: [
       ...Object.keys(node.inputs).map((name) => ({ name, kind: 'aux' as const, role: 'input' as const, dims: [], equation: '' })),
@@ -346,7 +346,10 @@ function describe(node: PipelineNode, model: AggregateModel): ModelDescription {
         role: 'output' as const,
         dims: [...(model.by ? [model.by] : []), ...Object.keys(output.for)],
         equation: output.value,
-        description: [output.description, scope, ...Object.entries(output.for).map(([dim, values]) => forText(dim, values))].filter(Boolean).join('. '),
+        description: [output.description, scope, ...Object.entries(output.for).map(([dim, values]) => forText(dim, values))]
+          .flatMap((text) => (text ? [text.replace(/\.$/, '')] : []))
+          .join('. ')
+          .concat('.'),
         units: output.unit,
         dependsOn: namesOf(output),
       })),
@@ -364,8 +367,8 @@ function namesOf(output: AggregateOutput): string[] {
 }
 
 function forText(dim: string, values: string[] | Record<string, string>): string {
-  if (Array.isArray(values)) return `${dim}: ${values.join(', ')}`;
-  return `${dim}: ${Object.entries(values)
+  if (Array.isArray(values)) return `For each ${dim}: ${values.join(', ')}`;
+  return `For each ${dim}: ${Object.entries(values)
     .map(([coord, text]) => (coord === text ? coord : `${coord} = ${text}`))
     .join(', ')}`;
 }

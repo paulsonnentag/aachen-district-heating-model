@@ -4,14 +4,15 @@ import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
 import type { RunResult } from '../lib/runtime/run';
 import { BASELINE, createRunCache } from '../lib/runtime/runs';
 import { createSemantics } from '../lib/semantics';
-import { DetailPanel, type Compute } from './components/DetailPanel';
-import { GraphView, type Selection } from './graph/GraphView';
-import { groupOfDataset, groupOfNode, groupsOf } from './graph/groups';
+import { Fullscreen } from './components/Fullscreen';
+import type { ViewName } from './components/ValueView';
+import { GraphView } from './graph/GraphView';
 import type { FocusTarget, StoryContext } from './story/elements';
 import { download } from './python/download';
 import { browserPythonHost } from './python/host';
 import { StoryPane } from './story/StoryPane';
 import { modelViews } from './views';
+import { createWorkbench, keyOf, parseKey, type Selection, type Workbench } from './workbench';
 
 const readText = async (path: string): Promise<string> => {
   const response = await fetch(`${import.meta.env.BASE_URL}${path}`);
@@ -28,46 +29,31 @@ export function App() {
   const [entries] = createResource(() => loadIndex(readText));
   const [pipelineIndex, setPipelineIndex] = createSignal(0);
   const [scenarioIndex, setScenarioIndex] = createSignal(-1);
-  const [selection, setSelection] = createSignal<Selection>();
   const [open, setOpen] = createSignal<string>();
   const [view, setView] = createSignal<View>('model');
-  const [expanded, setExpanded] = createSignal<string[]>([]);
-  const [reveal, setReveal] = createSignal<Selection | undefined>(undefined, { equals: false });
   const entry = createMemo(() => entries()?.[pipelineIndex()]);
-  syncWithUrl({
-    entries,
-    pipelineIndex,
-    setPipelineIndex,
-    scenarioIndex,
-    setScenarioIndex,
-    selection,
-    setSelection,
-    open,
-    setOpen,
-    view,
-    setView,
-    expanded,
-    setExpanded,
-  });
   const [runs, { refetch }] = createResource(
     () => entry() && { entry: entry()!, scenario: scenarioIndex() },
     ({ entry, scenario }) => runEntry(entry, scenario),
   );
-  const toggleGroup = (id: string) => setExpanded((ids) => (ids.includes(id) ? ids.filter((g) => g !== id) : [...ids, id]));
-  createEffect(() => {
-    const s = selection();
-    const result = runs.latest?.result;
-    if (!s || !result) return;
-    const group = s.kind === 'node' ? groupOfNode(result, s.id) : s.kind === 'dataset' ? groupOfDataset(groupsOf(result), s.id) : undefined;
-    if (group && !expanded().includes(group)) setExpanded((ids) => [...ids, group]);
-  });
-  const compute: Compute = async (nodeIds, onLog) => {
-    const result = runs.latest?.result;
-    if (!result) return;
-    for (const id of nodeIds) await result.nodes.get(id)?.compute?.(onLog);
-    runOf.clear();
-    await refetch();
+  const openable = (nodeId: string) => {
+    const node = runs.latest?.result.pipeline.nodes.find((n) => n.id === nodeId);
+    return node !== undefined && node.semantics in modelViews;
   };
+  const workbench = createWorkbench({
+    result: () => runs.latest?.result,
+    refresh: async () => {
+      runOf.clear();
+      await refetch();
+    },
+    canOpen: openable,
+    open: (nodeId) => {
+      if (!openable(nodeId)) return;
+      workbench.setFull(undefined);
+      setOpen(nodeId);
+    },
+  });
+  syncWithUrl({ entries, pipelineIndex, setPipelineIndex, scenarioIndex, setScenarioIndex, open, setOpen, view, setView, workbench });
   const [storyText] = createResource(() => entry()?.story, readText);
   const storyShown = () => view() !== 'model';
   const modelShown = () => view() !== 'story';
@@ -75,22 +61,14 @@ export function App() {
   const choosePipeline = (index: number) => {
     setPipelineIndex(index);
     setScenarioIndex(-1);
-    setSelection(undefined);
+    workbench.reset();
     setOpen(undefined);
-    setExpanded([]);
     setView(defaultView(entries()?.[index]));
   };
   const togglePane = (pane: 'story' | 'model') => {
     const shown = pane === 'story' ? storyShown() : modelShown();
     if (!shown) setView('split');
     else if (view() === 'split') setView(pane === 'story' ? 'model' : 'story');
-  };
-  const openable = (nodeId: string) => {
-    const node = runs.latest?.result.pipeline.nodes.find((n) => n.id === nodeId);
-    return node !== undefined && node.semantics in modelViews;
-  };
-  const openNode = (nodeId: string) => {
-    if (openable(nodeId)) setOpen(nodeId);
   };
   const focus = (target: FocusTarget) => {
     const scenarios = entry()?.scenarios ?? [];
@@ -100,10 +78,10 @@ export function App() {
         ? { kind: 'node', id: target.node }
         : undefined;
     setScenarioIndex(scenarios.findIndex((s) => s.name === target.scenario));
-    setSelection(selected);
+    workbench.setFull(undefined);
+    workbench.focus(selected);
     setOpen(target.open && target.node && openable(target.node) ? target.node : undefined);
     setView('split');
-    setReveal(selected);
   };
   const storyContext = createMemo((): StoryContext | undefined => {
     const current = entry();
@@ -113,7 +91,7 @@ export function App() {
       focus,
       focused: () => {
         if (!modelShown()) return undefined;
-        const s = selection();
+        const s = workbench.selection();
         return { scenario: current.scenarios[scenarioIndex()]?.name ?? BASELINE, dataset: s?.kind === 'dataset' ? s.id : undefined };
       },
       scenarioLabel: (name) => current.scenarios.find((s) => s.name === name)?.scenario.label ?? name,
@@ -183,29 +161,14 @@ export function App() {
                       <GraphView
                         result={r().result}
                         baseline={r().baseline}
-                        selected={selection()}
-                        reveal={reveal()}
-                        expanded={expanded()}
-                        onSelect={setSelection}
-                        onOpen={openNode}
-                        onToggleGroup={toggleGroup}
+                        selected={workbench.selection()}
+                        reveal={workbench.reveal()}
+                        expanded={workbench.expanded()}
+                        actions={workbench.actions}
                       />
                     </div>
-                    <Show when={selection()}>
-                      {(s) => (
-                        <DetailPanel
-                          selection={s()}
-                          result={r().result}
-                          baseline={r().baseline}
-                          expanded={expanded()}
-                          canOpen={openable}
-                          onOpen={openNode}
-                          onSelect={setSelection}
-                          onToggleGroup={toggleGroup}
-                          onCompute={compute}
-                          onClose={() => setSelection(undefined)}
-                        />
-                      )}
+                    <Show when={workbench.full()}>
+                      {(s) => <Fullscreen selection={s()} result={r().result} baseline={r().baseline} actions={workbench.actions} />}
                     </Show>
                   </>
                 }
@@ -256,22 +219,23 @@ function Summary(props: { runs: Runs; expectation?: string }) {
 
 type Runs = { result: RunResult; baseline?: RunResult };
 
-/** Mirrors the view in `?pipeline=housing&scenario=no-quota&select=dataset:quota&open=housing_market&expand=prepare&view=split` so views can be linked. */
+/**
+ * Mirrors the view in the URL so it can be linked, e.g.
+ * `?pipeline=housing&scenario=no-quota&select=dataset:quota&expand=group:prepare,dataset:quota&full=dataset:quota&show=quota:table&view=split`.
+ */
 function syncWithUrl(state: {
   entries: () => PipelineEntry[] | undefined;
   pipelineIndex: () => number;
   setPipelineIndex: (i: number) => void;
   scenarioIndex: () => number;
   setScenarioIndex: (i: number) => void;
-  selection: () => Selection | undefined;
-  setSelection: (s: Selection | undefined) => void;
   open: () => string | undefined;
   setOpen: (nodeId: string | undefined) => void;
   view: () => View;
   setView: (view: View) => void;
-  expanded: () => string[];
-  setExpanded: (ids: string[]) => void;
+  workbench: Workbench;
 }) {
+  const { workbench } = state;
   let restored = false;
   createEffect(() => {
     const entries = state.entries();
@@ -281,10 +245,17 @@ function syncWithUrl(state: {
     const pipeline = Math.max(0, entries.findIndex((e) => e.dir === params.get('pipeline')));
     state.setPipelineIndex(pipeline);
     state.setScenarioIndex(entries[pipeline]!.scenarios.findIndex((s) => s.name === params.get('scenario')));
-    const [kind, id] = (params.get('select') ?? '').split(':');
-    if ((kind === 'dataset' || kind === 'node' || kind === 'group') && id) state.setSelection({ kind, id });
+    workbench.setSelection(parseKey(params.get('select') ?? ''));
     state.setOpen(params.get('open') ?? undefined);
-    state.setExpanded((params.get('expand') ?? '').split(',').filter(Boolean));
+    workbench.setExpanded(listParam(params, 'expand').flatMap((key) => {
+      const target = parseKey(key);
+      return target ? [keyOf(target)] : [];
+    }));
+    workbench.setFull(parseKey(params.get('full') ?? ''));
+    workbench.setViews(Object.fromEntries(listParam(params, 'show').flatMap((pair) => {
+      const at = pair.lastIndexOf(':');
+      return at > 0 ? [[pair.slice(0, at), pair.slice(at + 1) as ViewName]] : [];
+    })));
     const view = params.get('view');
     const hasStory = entries[pipeline]!.story !== undefined;
     state.setView(hasStory && (view === 'story' || view === 'split' || view === 'model') ? view : defaultView(entries[pipeline]));
@@ -295,14 +266,22 @@ function syncWithUrl(state: {
     const params = new URLSearchParams({ pipeline: entry.dir });
     const scenario = entry.scenarios[state.scenarioIndex()];
     if (scenario) params.set('scenario', scenario.name);
-    const selection = state.selection();
-    if (selection) params.set('select', `${selection.kind}:${selection.id}`);
+    const selection = workbench.selection();
+    if (selection) params.set('select', keyOf(selection));
     const open = state.open();
     if (open) params.set('open', open);
-    if (state.expanded().length > 0) params.set('expand', state.expanded().join(','));
+    if (workbench.expanded().length > 0) params.set('expand', workbench.expanded().join(','));
+    const full = workbench.full();
+    if (full) params.set('full', keyOf(full));
+    const views = Object.entries(workbench.views());
+    if (views.length > 0) params.set('show', views.map(([name, view]) => `${name}:${view}`).join(','));
     if (entry.story) params.set('view', state.view());
     history.replaceState(null, '', `?${params}`);
   });
+}
+
+function listParam(params: URLSearchParams, name: string): string[] {
+  return (params.get(name) ?? '').split(',').filter(Boolean);
 }
 
 function defaultView(entry: PipelineEntry | undefined): View {

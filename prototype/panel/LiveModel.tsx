@@ -1,10 +1,10 @@
 import { createEffect, createResource, createSignal, For, Show } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
-import { DetailPanel, type Compute } from '../../app/components/DetailPanel';
-import { GraphView, type Selection } from '../../app/graph/GraphView';
-import { groupOfDataset, groupOfNode, groupsOf } from '../../app/graph/groups';
+import { Fullscreen } from '../../app/components/Fullscreen';
+import { GraphView } from '../../app/graph/GraphView';
 import type { FocusTarget } from '../../app/story/elements';
 import { modelViews } from '../../app/views';
+import { createWorkbench, type Selection } from '../../app/workbench';
 import type { PipelineEntry } from '../../lib/runtime/load';
 import type { RunResult } from '../../lib/runtime/run';
 import { BASELINE } from '../../lib/runtime/runs';
@@ -13,33 +13,28 @@ import { runOf } from '../model';
 /** The pipeline on main, drawn by the workbench's own graph and detail views. */
 export function LiveModel(props: { entry: PipelineEntry; target?: FocusTarget }) {
   const [scenario, setScenario] = createSignal(BASELINE);
-  const [selection, setSelection] = createSignal<Selection>();
-  const [reveal, setReveal] = createSignal<Selection | undefined>(undefined, { equals: false });
   const [open, setOpen] = createSignal<string>();
-  const [expanded, setExpanded] = createSignal<string[]>([]);
   const [runs, { refetch }] = createResource(
     () => ({ entry: props.entry, scenario: scenario() }),
     ({ entry, scenario }) => runScenario(entry, scenario),
   );
-  const toggleGroup = (id: string) => setExpanded((ids) => (ids.includes(id) ? ids.filter((g) => g !== id) : [...ids, id]));
-  createEffect(() => {
-    const s = selection();
-    const result = runs.latest?.result;
-    if (!s || !result) return;
-    const group = s.kind === 'node' ? groupOfNode(result, s.id) : s.kind === 'dataset' ? groupOfDataset(groupsOf(result), s.id) : undefined;
-    if (group && !expanded().includes(group)) setExpanded((ids) => [...ids, group]);
-  });
-  const compute: Compute = async (nodeIds, onLog) => {
-    const result = runs.latest?.result;
-    if (!result) return;
-    for (const id of nodeIds) await result.nodes.get(id)?.compute?.(onLog);
-    runOf.clear();
-    await refetch();
-  };
   const openable = (nodeId: string) => {
     const node = runs.latest?.result.pipeline.nodes.find((n) => n.id === nodeId);
     return node !== undefined && node.semantics in modelViews;
   };
+  const workbench = createWorkbench({
+    result: () => runs.latest?.result,
+    refresh: async () => {
+      runOf.clear();
+      await refetch();
+    },
+    canOpen: openable,
+    open: (nodeId) => {
+      if (!openable(nodeId)) return;
+      workbench.setFull(undefined);
+      setOpen(nodeId);
+    },
+  });
   createEffect(() => {
     const target = props.target;
     if (!target) return;
@@ -49,9 +44,9 @@ export function LiveModel(props: { entry: PipelineEntry; target?: FocusTarget })
         ? { kind: 'node', id: target.node }
         : undefined;
     setScenario(target.scenario);
-    setSelection(selected);
+    workbench.setFull(undefined);
+    workbench.focus(selected);
     setOpen(target.open && target.node ? target.node : undefined);
-    setReveal(selected);
   });
 
   return (
@@ -86,29 +81,14 @@ export function LiveModel(props: { entry: PipelineEntry; target?: FocusTarget })
                     <GraphView
                       result={r().result}
                       baseline={r().baseline}
-                      selected={selection()}
-                      reveal={reveal()}
-                      expanded={expanded()}
-                      onSelect={setSelection}
-                      onOpen={(id) => openable(id) && setOpen(id)}
-                      onToggleGroup={toggleGroup}
+                      selected={workbench.selection()}
+                      reveal={workbench.reveal()}
+                      expanded={workbench.expanded()}
+                      actions={workbench.actions}
                     />
                   </div>
-                  <Show when={selection()}>
-                    {(s) => (
-                      <DetailPanel
-                        selection={s()}
-                        result={r().result}
-                        baseline={r().baseline}
-                        expanded={expanded()}
-                        canOpen={openable}
-                        onOpen={(id) => openable(id) && setOpen(id)}
-                        onSelect={setSelection}
-                        onToggleGroup={toggleGroup}
-                        onCompute={compute}
-                        onClose={() => setSelection(undefined)}
-                      />
-                    )}
+                  <Show when={workbench.full()}>
+                    {(s) => <Fullscreen selection={s()} result={r().result} baseline={r().baseline} actions={workbench.actions} />}
                   </Show>
                 </>
               }

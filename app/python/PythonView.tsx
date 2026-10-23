@@ -7,7 +7,7 @@ import type { DatasetResult } from '../../lib/runtime/run';
 import { tableData, type Table } from '../../lib/runtime/table';
 import type { Tensor } from '../../lib/runtime/tensor';
 import type { NodeOutput } from '../../lib/semantics/types';
-import { CacheNote } from '../components/DetailPanel';
+import { CacheNote } from '../components/Details';
 import type { ModelViewProps } from '../stockflow/StockFlowView';
 import { formatBytes, formatValue } from '../values';
 

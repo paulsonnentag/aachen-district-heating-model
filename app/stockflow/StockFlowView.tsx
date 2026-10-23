@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js';
 import type { NodeResult, RunResult } from '../../lib/runtime/run';
 import type { Tensor } from '../../lib/runtime/tensor';
 import type { VariableDescription, VariableTrace } from '../../lib/semantics/types';
-import { detailChart } from '../components/DetailPanel';
+import { detailChart } from '../components/ValueView';
 import { Plot } from '../components/Plot';
 import { formatValue } from '../values';
 import {
@@ -260,7 +260,7 @@ function VariablePanel(props: { variable: VariableDescription; values: Values; w
   const tensor = (): Tensor | undefined => props.values.trace?.tensor ?? summaryTensor(props.values.trace, props.variable);
   const baseline = (): Tensor | undefined => props.values.baseline?.tensor ?? summaryTensor(props.values.baseline, props.variable);
   return (
-    <aside class="detail">
+    <aside class="sf-detail">
       <button class="close" onClick={() => props.onClose()}>×</button>
       <h2>{props.variable.name}</h2>
       <p class="muted">
