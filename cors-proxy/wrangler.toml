@@ -1,0 +1,6 @@
+name = "patchwork-cors-proxy"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://patchwork.inkandswitch.com,http://localhost:5173,http://localhost:8787"
