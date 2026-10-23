@@ -1,12 +1,9 @@
-import { python } from '@codemirror/lang-python';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { EditorState, RangeSetBuilder } from '@codemirror/state';
-import { Decoration, EditorView, lineNumbers } from '@codemirror/view';
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import type { DatasetResult } from '../../lib/runtime/run';
 import { tableData, type Table } from '../../lib/runtime/table';
 import type { Tensor } from '../../lib/runtime/tensor';
 import type { NodeOutput } from '../../lib/semantics/types';
+import { CodeView, functionLines } from '../components/CodeView';
 import { CacheNote } from '../components/Details';
 import type { ModelViewProps } from '../stockflow/StockFlowView';
 import { formatBytes, formatValue } from '../values';
@@ -54,7 +51,9 @@ export function PythonView(props: ModelViewProps) {
 
   return (
     <div class="py-view">
-      <Show when={code()}>{(c) => <CodeView text={c().text} entry={c().entry} />}</Show>
+      <Show when={code()}>
+        {(c) => <CodeView class="py-code" text={c().text} language={c().language} highlight={c().entry ? functionLines(c().text, c().entry!) : undefined} />}
+      </Show>
       <aside class="py-side">
         <h3>Inputs</h3>
         <ul class="py-ports">
@@ -125,54 +124,6 @@ export function PythonView(props: ModelViewProps) {
       </aside>
     </div>
   );
-}
-
-/** The whole script, scrolled to the node's function, which is highlighted. */
-function CodeView(props: { text: string; entry?: string }) {
-  let host!: HTMLDivElement;
-  onMount(() => {
-    const range = props.entry ? functionLines(props.text, props.entry) : undefined;
-    const view = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: props.text,
-        extensions: [
-          EditorState.readOnly.of(true),
-          lineNumbers(),
-          python(),
-          syntaxHighlighting(defaultHighlightStyle),
-          ...(range ? [highlightLines(range)] : []),
-        ],
-      }),
-    });
-    if (range) {
-      requestAnimationFrame(() =>
-        view.dispatch({ effects: EditorView.scrollIntoView(view.state.doc.line(range.from).from, { y: 'start', yMargin: 24 }) }),
-      );
-    }
-    onCleanup(() => view.destroy());
-  });
-  return <div ref={host} class="py-code" />;
-}
-
-/** First and last line (1-based) of a top-level function. */
-function functionLines(text: string, name: string): { from: number; to: number } | undefined {
-  const lines = text.split('\n');
-  const start = lines.findIndex((line) => line.startsWith(`def ${name}(`));
-  if (start < 0) return undefined;
-  let end = start + 1;
-  while (end < lines.length && (lines[end]!.trim() === '' || /^\s/.test(lines[end]!))) end++;
-  while (end > start + 1 && lines[end - 1]!.trim() === '') end--;
-  return { from: start + 1, to: end };
-}
-
-function highlightLines(range: { from: number; to: number }) {
-  const line = Decoration.line({ class: 'py-entry-line' });
-  return EditorView.decorations.compute([], (state) => {
-    const builder = new RangeSetBuilder<Decoration>();
-    for (let n = range.from; n <= Math.min(range.to, state.doc.lines); n++) builder.add(state.doc.line(n).from, state.doc.line(n).from, line);
-    return builder.finish();
-  });
 }
 
 function describeDifference(fresh: NodeOutput, port: string, current: DatasetResult | undefined): string | undefined {

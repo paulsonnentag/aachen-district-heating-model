@@ -3,10 +3,10 @@ import type { Pipeline, Provenance, Source } from '../../lib/runtime/pipeline';
 import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run';
 import type { CacheInfo, VariableDescription } from '../../lib/semantics/types';
 import { groupOfNode, groupStatus, type GroupInfo } from '../graph/groups';
+import { CodeView, functionLines } from './CodeView';
 import { formatBytes } from '../values';
 import type { Actions } from '../workbench';
 
-export const CACHE_LABELS = { snapshot: 'from snapshot', stored: 'from browser cache', computed: 'computed' } as const;
 export const STATUS_LABELS: Record<NodeResult['status'], string> = {
   ok: 'ok',
   error: 'error',
@@ -132,7 +132,7 @@ function SourceLink(props: { source?: Source }) {
   );
 }
 
-/** What a step is, what it read and printed, and the variables it defines. */
+/** What a step is, its code (for a Python step, its function) and the variables it defines. */
 export function NodeDetail(props: { node: NodeResult; result: RunResult; actions: Actions }) {
   const groups = () => groupVariables(props.node.description?.variables ?? [], props.node.node.inputs);
   const code = () => props.node.description?.code;
@@ -173,9 +173,17 @@ export function NodeDetail(props: { node: NodeResult; result: RunResult; actions
       </Show>
       <For each={props.node.warnings}>{(w) => <p class="warning">{w}</p>}</For>
       <Show when={props.node.cache}>{(cache) => <CacheNote cache={cache()} />}</Show>
-      <Show when={props.node.log?.length}>
-        <h3>Log</h3>
-        <pre class="node-log">{props.node.log!.join('\n')}</pre>
+      <Show when={code()}>
+        {(c) => {
+          const lines = c().entry ? functionLines(c().text, c().entry!) : undefined;
+          const text = lines ? c().text.split('\n').slice(lines.from - 1, lines.to).join('\n') : c().text;
+          return (
+            <>
+              <h3>Code</h3>
+              <CodeView class="node-code" text={text} language={c().language} firstLine={lines?.from} wrap />
+            </>
+          );
+        }}
       </Show>
       <For each={groups()}>
         {(group) => (
@@ -191,7 +199,10 @@ export function NodeDetail(props: { node: NodeResult; result: RunResult; actions
                         <Show when={v.dims.length > 0}><span class="dims">[{v.dims.join(', ')}]</span></Show>
                       </td>
                       <td>
-                        <Show when={v.wired} fallback={<Show when={v.equation}><code class="equation">{v.equation}</code></Show>}>
+                        <Show
+                          when={v.wired}
+                          fallback={<Show when={v.equation && (v.role === 'input' || !code())}><code class="equation">{v.equation}</code></Show>}
+                        >
                           {(name) => (
                             <code class="equation">
                               ← <DatasetLink name={name()} actions={props.actions} />
@@ -248,10 +259,7 @@ export function GroupDetail(props: { info: GroupInfo; result: RunResult; actions
                 </td>
                 <td>
                   <div class="var-description">{node.node.label}</div>
-                  <div class="muted">
-                    {STATUS_LABELS[node.status]}
-                    <Show when={node.cache}>{(cache) => <> · {CACHE_LABELS[cache().origin]}</>}</Show>
-                  </div>
+                  <div class="muted">{STATUS_LABELS[node.status]}</div>
                 </td>
               </tr>
             )}

@@ -27,6 +27,7 @@ export const equationSemantics: Semantics = {
       ports: { inputs: null, outputs: Object.keys(model.variables) },
       issues: checkLiterals(model),
       description: {
+        code: { language: 'equation', text: equationText(model) },
         variables: [
           ...Object.keys(node.inputs).map((name) => ({ name, kind: 'aux' as const, role: 'input' as const, dims: [], equation: '' })),
           ...Object.entries(model.variables).map(([name, v]) => ({
@@ -44,6 +45,13 @@ export const equationSemantics: Semantics = {
     };
   },
 };
+
+/** One line per variable: `name[dims] = equation  # units`. */
+function equationText(model: EquationModel): string {
+  return Object.entries(model.variables)
+    .map(([name, v]) => `${name}${v.dims.length > 0 ? `[${v.dims.join(', ')}]` : ''} = ${v.equation}  # ${v.units}`)
+    .join('\n');
+}
 
 async function runEquations(model: EquationModel, inputs: Record<string, Tensor>): Promise<NodeOutput> {
   const years = [...new Set(Object.values(inputs).flatMap((t) => coordsOf(t, 'year') ?? []))].map(Number);

@@ -72,8 +72,8 @@ export type VariableTrace = {
 
 export type ModelDescription = {
   variables: VariableDescription[];
-  /** The model's code, for semantics whose models are programs. */
-  code?: { path: string; language: string; text: string; entry?: string };
+  /** The model's code: a program's source, or the definition written out for reading; `path` if it is a file. */
+  code?: { path?: string; language: string; text: string; entry?: string };
 };
 
 export type VariableDescription = {

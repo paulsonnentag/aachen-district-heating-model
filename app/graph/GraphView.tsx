@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { provenanceKind } from '../../lib/runtime/pipeline';
 import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run';
-import { CACHE_LABELS, ComputeButton, computeGroup, DatasetInfo, NodeDetail, STATUS_LABELS } from '../components/Details';
+import { ComputeButton, computeGroup, DatasetInfo, NodeDetail, STATUS_LABELS } from '../components/Details';
 import { currentView, previewHeight, ValueView, valueSummary, viewsOf, ViewPicker, type ViewOption } from '../components/ValueView';
 import { keyOf, type Actions, type Selection } from '../workbench';
 import { consumersOf, groupsOf, groupStatus, type GroupInfo } from './groups';
@@ -326,7 +326,6 @@ function ModelBox(props: {
           <Show when={props.node.warnings.length > 0}>
             <span class="status warn">{props.node.warnings.length} warning{props.node.warnings.length > 1 ? 's' : ''}</span>
           </Show>
-          <Show when={props.node.cache}>{(cache) => <span class="cache-origin">{CACHE_LABELS[cache().origin]}</span>}</Show>
         </div>
       </div>
       <Show when={props.expanded}>

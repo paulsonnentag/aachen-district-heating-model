@@ -329,15 +329,8 @@ function check(node: PipelineNode, model: AggregateModel): Issue[] {
 }
 
 function describe(node: PipelineNode, model: AggregateModel): ModelDescription {
-  const rows = node.inputs[model.rows] ?? model.rows;
-  const over = model.over && (node.inputs[model.over.split('.')[0]!] ?? model.over);
-  const scope = [
-    `Over the rows of ${rows}`,
-    model.where ? ` where ${model.where}` : '',
-    model.by ? `, per ${model.by}` : '',
-    over ? ` in the order of ${over}` : '',
-  ].join('');
   return {
+    code: { language: 'aggregate', text: aggregateText(model) },
     variables: [
       ...Object.keys(node.inputs).map((name) => ({ name, kind: 'aux' as const, role: 'input' as const, dims: [], equation: '' })),
       ...Object.entries(model.outputs).map(([name, output]) => ({
@@ -346,10 +339,7 @@ function describe(node: PipelineNode, model: AggregateModel): ModelDescription {
         role: 'output' as const,
         dims: [...(model.by ? [model.by] : []), ...Object.keys(output.for)],
         equation: output.value,
-        description: [output.description, scope, ...Object.entries(output.for).map(([dim, values]) => forText(dim, values))]
-          .flatMap((text) => (text ? [text.replace(/\.$/, '')] : []))
-          .join('. ')
-          .concat('.'),
+        description: output.description,
         units: output.unit,
         dependsOn: namesOf(output),
       })),
@@ -366,9 +356,27 @@ function namesOf(output: AggregateOutput): string[] {
   }
 }
 
-function forText(dim: string, values: string[] | Record<string, string>): string {
-  if (Array.isArray(values)) return `For each ${dim}: ${values.join(', ')}`;
-  return `For each ${dim}: ${Object.entries(values)
-    .map(([coord, text]) => (coord === text ? coord : `${coord} = ${text}`))
-    .join(', ')}`;
+/**
+ * The model written out: which rows, how they are grouped, then each output's formula with what
+ * `{dim}` stands for per coordinate.
+ */
+function aggregateText(model: AggregateModel): string {
+  const scope = [
+    `rows  ${model.rows}`,
+    ...(model.where ? [`where ${model.where}`] : []),
+    ...(model.by ? [`by    ${model.by}${model.over ? `, in the order of ${model.over}` : ''}`] : []),
+  ];
+  const outputs = Object.entries(model.outputs).map(([name, output]) => {
+    const dims = [...(model.by ? [model.by] : []), ...Object.keys(output.for)];
+    const formula = `${name}${dims.length > 0 ? `[${dims.join(', ')}]` : ''} = ${output.value}  # ${output.unit}`;
+    return [formula, ...Object.entries(output.for).flatMap(([dim, values]) => forLines(dim, values))].join('\n');
+  });
+  return [scope.join('\n'), ...outputs].join('\n\n');
+}
+
+function forLines(dim: string, values: string[] | Record<string, string>): string[] {
+  const label = `  {${dim}}`;
+  if (Array.isArray(values)) return [`${label} in ${values.join(', ')}`];
+  const width = Math.max(...Object.keys(values).map((coord) => coord.length));
+  return Object.entries(values).map(([coord, text], i) => `${i === 0 ? label : ' '.repeat(label.length)}  ${coord.padEnd(width)}  ${text}`);
 }
