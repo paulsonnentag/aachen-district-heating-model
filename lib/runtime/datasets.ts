@@ -1,12 +1,42 @@
 import Papa from 'papaparse';
-import type { Dataset, NestedValue } from './pipeline';
+import type { Dataset, NestedValue, RemoteFileDataset } from './pipeline';
+import { tableFromColumns, type Table } from './table';
 import type { Tensor } from './tensor';
 
 export type ReadText = (path: string) => Promise<string>;
 
-export async function loadDataset(dataset: Dataset, readText: ReadText): Promise<Tensor> {
-  if ('file' in dataset) return loadCsv(await readText(dataset.file), dataset.dims, dataset.column, dataset.unit);
-  return fromNested(dataset.value, dataset.dims, dataset.unit);
+/** A raw download as nodes see it: fetched only when a node actually runs on it. */
+export type RemoteFile = Pick<RemoteFileDataset, 'url' | 'sha256' | 'size' | 'format'>;
+
+/** One coordinate per dimension, then the value. */
+export type Row = { at: string[]; value: number };
+
+/** A catalog dataset as a tensor and, for a CSV file, the rows it was read from. */
+export async function loadDataset(dataset: Exclude<Dataset, RemoteFileDataset>, readText: ReadText): Promise<{ tensor: Tensor; source?: Table }> {
+  if (!('file' in dataset)) return { tensor: fromNested(dataset.value, dataset.dims, dataset.unit) };
+  const text = await readText(dataset.file);
+  return { tensor: loadCsv(text, dataset.dims, dataset.column, dataset.unit), source: csvTable(text) };
+}
+
+function csvTable(text: string): Table {
+  const parsed = Papa.parse<Record<string, unknown>>(text.trim(), { header: true, skipEmptyLines: true, dynamicTyping: true });
+  const names = parsed.meta.fields ?? [];
+  return tableFromColumns(Object.fromEntries(names.map((name) => [name, parsed.data.map((row) => row[name] ?? null)])));
+}
+
+/** Builds a dense tensor from rows that cover every combination of coordinates exactly once. */
+export function tensorFromRows(rows: Row[], dims: string[], unit: string): Tensor {
+  const coords = dims.map((d, i) => sortCoords(d, unique(rows.map((r) => r.at[i]!))));
+  const positions = coords.map((c) => new Map(c.map((key, k) => [key, k])));
+  const values = new Float64Array(coords.reduce((n, c) => n * c.length, 1)).fill(NaN);
+  for (const row of rows) {
+    if (row.at.length !== dims.length) throw new Error(`Row ${row.at.join(', ')} has ${row.at.length} coordinates for ${dims.length} dimensions`);
+    const offset = row.at.reduce((o, key, i) => o * coords[i]!.length + positions[i]!.get(key)!, 0);
+    if (!Number.isNaN(values[offset]!)) throw new Error(`Duplicate row for ${row.at.join(', ')}`);
+    values[offset] = row.value;
+  }
+  if (values.some(Number.isNaN)) throw new Error('Missing or non-numeric values for some coordinates');
+  return { dims, coords, values, unit };
 }
 
 function loadCsv(text: string, dimColumns: Record<string, string>, column: string, unit: string): Tensor {
@@ -17,16 +47,11 @@ function loadCsv(text: string, dimColumns: Record<string, string>, column: strin
     at: dims.map((d) => requireCell(row, dimColumns[d]!)),
     value: Number(requireCell(row, column)),
   }));
-  const coords = dims.map((d, i) => sortCoords(d, unique(rows.map((r) => r.at[i]!))));
-  const positions = coords.map((c) => new Map(c.map((key, k) => [key, k])));
-  const values = new Float64Array(coords.reduce((n, c) => n * c.length, 1)).fill(NaN);
-  for (const row of rows) {
-    const offset = row.at.reduce((o, key, i) => o * coords[i]!.length + positions[i]!.get(key)!, 0);
-    if (!Number.isNaN(values[offset]!)) throw new Error(`CSV: duplicate row for ${row.at.join(', ')}`);
-    values[offset] = row.value;
+  try {
+    return tensorFromRows(rows, dims, unit);
+  } catch (error) {
+    throw new Error(`CSV: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (values.some(Number.isNaN)) throw new Error('CSV: missing or non-numeric values for some coordinates');
-  return { dims, coords, values, unit };
 }
 
 function fromNested(value: NestedValue, dims: string[], unit: string): Tensor {

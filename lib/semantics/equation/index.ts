@@ -39,7 +39,8 @@ export const equationSemantics: Semantics = {
           })),
         ],
       },
-      execute: (inputs) => runEquations(model, inputs),
+      fingerprint: JSON.stringify(model),
+      execute: (inputs) => runEquations(model, inputs.tensors),
     };
   },
 };

@@ -3,12 +3,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadIndex } from '../runtime/load';
 import { createRunCache } from '../runtime/runs';
-import { semantics } from '../semantics';
+import { createSemantics } from '../semantics';
+import { nodePythonHost } from '../semantics/python/node';
 import { checkElement, STORY_TAGS, storyValue, type ScenarioRuns, type StoryElement } from './resolve';
 
 const root = join(import.meta.dirname, '../../pipelines');
 const readText = (path: string) => readFile(join(root, path), 'utf8');
-const runOf = createRunCache(readText, semantics);
+const runOf = createRunCache(readText, createSemantics(nodePythonHost()));
 const entries = await loadIndex(readText);
 
 describe.each(entries.filter((e) => e.story).map((e) => [e.story!, e] as const))('story %s', (story, entry) => {

@@ -5,7 +5,7 @@ import { formatValue } from '../values';
 import { Plot } from './Plot';
 
 /** Cell of the European statistical grid, positioned by its south-west corner in EPSG:3035 metres. */
-type Cell = { id: string; x: number; y: number; size: number };
+export type Cell = { id: string; x: number; y: number; size: number };
 
 type Grid = { dim: string; cells: Cell[] };
 
@@ -115,8 +115,9 @@ function subtract(current: Tensor, base: Tensor, gridDim: string): Tensor {
 }
 
 /** Fixed across years so the slider shows change; the top and bottom 2% are clamped. */
-function colourDomain(values: Float64Array, diverging: boolean): [number, number] {
-  const sorted = Float64Array.from(values).sort();
+export function colourDomain(values: Float64Array, diverging: boolean): [number, number] {
+  const sorted = Float64Array.from(values.filter(Number.isFinite)).sort();
+  if (sorted.length === 0) return [0, 1];
   const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
   if (diverging) {
     const extent = Math.max(Math.abs(at(0.02)), Math.abs(at(0.98))) || 1;
@@ -134,7 +135,7 @@ function alignTo(cells: Cell[], frame: Tensor): Float64Array {
   return Float64Array.from(cells, (c) => frame.values[position.get(c.id) ?? -1] ?? NaN);
 }
 
-function renderMap(cells: Cell[], values: Float64Array, domain: [number, number], diverging: boolean, unit: string): Element {
+export function renderMap(cells: Cell[], values: Float64Array, domain: [number, number], diverging: boolean, unit: string): Element {
   const data = cells.map((cell, i) => ({ ...cell, value: values[i]! }));
   const label = diverging ? `Δ ${unit}` : unit;
   return P.plot({
@@ -161,7 +162,7 @@ function renderMap(cells: Cell[], values: Float64Array, domain: [number, number]
   });
 }
 
-function parseCellId(id: string): Cell | undefined {
+export function parseCellId(id: string): Cell | undefined {
   const match = /^(\d+)(m|km)N(\d+)E(\d+)$/.exec(id);
   if (!match) return undefined;
   const size = Number(match[1]) * (match[2] === 'km' ? 1000 : 1);

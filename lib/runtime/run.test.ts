@@ -4,9 +4,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadIndex, mergePatch, resolvePipeline, scopedReader, type PipelineEntry } from './load';
 import { runPipeline, type RunResult } from './run';
 import { coordsOf, get, sumExcept, type Tensor } from './tensor';
-import { semantics } from '../semantics';
+import { createSemantics } from '../semantics';
+import { nodePythonHost } from '../semantics/python/node';
 
 const root = join(import.meta.dirname, '../../pipelines');
+const semantics = createSemantics(nodePythonHost());
 const readText = (path: string) => readFile(join(root, path), 'utf8');
 
 describe('housing pipeline', () => {
@@ -107,6 +109,26 @@ describe('heat transition pipeline', () => {
     const heat = await entry('heat-transition/pipeline.json');
     for (const { scenario } of heat.scenarios) expectClean(await runEntry(heat, scenario));
   });
+
+  it('leaves the decoding steps idle while the snapshots downstream cover the run', () => {
+    for (const id of ['read_buildings', 'read_census', 'read_heat_plan', 'select_cells', 'locate_buildings']) {
+      expect(baseline.nodes.get(id)!.status).toBe('idle');
+    }
+    const stock = baseline.nodes.get('heating_stock')!;
+    expect(stock.status).toBe('ok');
+    expect(stock.cache?.origin).toBe('snapshot');
+    expect(stock.compute).toBeTypeOf('function');
+    expect(baseline.datasets.get('buildings')!.table).toBeUndefined();
+  });
+
+  it('rejects a node that is in two groups', async () => {
+    const heat = await entry('heat-transition/pipeline.json');
+    const result = await runEntry(heat, {
+      label: 'overlap',
+      patch: { groups: [...(heat.raw as { groups: unknown[] }).groups, { id: 'extra', label: 'extra', nodes: ['read_buildings'] }] },
+    });
+    expect(result.issues.map((i) => i.message)).toContain('Node "read_buildings" is also in group prepare_cells');
+  });
 });
 
 describe('provenance rule', () => {
@@ -148,7 +170,10 @@ async function runEntry(entry: PipelineEntry, scenario?: Parameters<typeof resol
 
 function expectClean(result: RunResult): void {
   expect(result.issues.filter((i) => i.severity === 'error')).toEqual([]);
-  for (const [, node] of result.nodes) expect({ id: node.node.id, status: node.status, error: node.error }).toEqual({ id: node.node.id, status: 'ok', error: undefined });
+  for (const [, node] of result.nodes) {
+    const status = node.status === 'idle' ? 'ok' : node.status;
+    expect({ id: node.node.id, status, error: node.error }).toEqual({ id: node.node.id, status: 'ok', error: undefined });
+  }
   for (const [name, dataset] of result.datasets) expect({ name, error: dataset.error }).toEqual({ name, error: undefined });
 }
 

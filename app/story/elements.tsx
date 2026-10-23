@@ -183,8 +183,8 @@ function AssumptionsView(props: ViewProps) {
         {(r) => (
           <div class="story-inputs">
             <p class="muted">
-              <code>{r().ref.dataset}</code> depends on {r().inputs.length} inputs: {count('assumption')} assumptions,{' '}
-              {count('derived')} derived from data, {count('sourced')} read from a source.
+              <code>{r().ref.dataset}</code> depends on {r().inputs.length} inputs: {count('assumption')} assumptions and{' '}
+              {count('sourced')} read from a source.
             </p>
             <ul>
               <For each={r().inputs}>

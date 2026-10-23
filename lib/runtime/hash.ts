@@ -1,0 +1,8 @@
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function hashJson(value: unknown): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(value)));
+}

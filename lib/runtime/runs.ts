@@ -7,10 +7,13 @@ export const BASELINE = 'baseline';
 
 export type RunOf = (entry: PipelineEntry, scenario: string) => Promise<RunResult>;
 
+/** `clear` forgets every run, e.g. after nodes were computed on demand, so the next call picks up their results. */
+export type RunCache = RunOf & { clear: () => void };
+
 /** Runs each pipeline once per scenario name (or `BASELINE`) and hands out the same result afterwards. */
-export function createRunCache(readText: ReadText, semantics: Record<string, Semantics>): RunOf {
+export function createRunCache(readText: ReadText, semantics: Record<string, Semantics>): RunCache {
   const cache = new Map<string, Promise<RunResult>>();
-  return (entry, scenario) => {
+  const runOf: RunOf = (entry, scenario) => {
     const key = `${entry.path}#${scenario}`;
     let run = cache.get(key);
     if (!run) {
@@ -19,6 +22,7 @@ export function createRunCache(readText: ReadText, semantics: Record<string, Sem
     }
     return run;
   };
+  return Object.assign(runOf, { clear: () => cache.clear() });
 
   async function start(entry: PipelineEntry, scenario: string): Promise<RunResult> {
     const patch = scenario === BASELINE ? undefined : entry.scenarios.find((s) => s.name === scenario)?.scenario;

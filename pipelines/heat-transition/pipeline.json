@@ -1,7 +1,7 @@
 {
   "id": "aachen-heat-transition",
   "title": "Aachen heat transition",
-  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data comes from prep/heat-transition/prepare.py.",
+  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data is computed from the raw public downloads by a group of Python steps.",
   "sources": {
     "ksg": {
       "title": "Bundes-Klimaschutzgesetz § 3: national climate targets",
@@ -61,71 +61,35 @@
     }
   },
   "datasets": {
-    "heating_stock_2022": {
-      "file": "data/heating_stock_2022.csv",
-      "dims": { "cell": "cell", "tech": "tech" },
-      "column": "buildings",
-      "unit": "buildings",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["zensus2022_energy", "nrw_kwp"],
-        "method": "Census buildings per cell and heating energy carrier, mapped to seven technologies (biomass = wood/pellets + biogas; other = coal + none). \"–\" counts as 0 as the census documentation prescribes. Cells without heated buildings in the NRW model are dropped."
-      }
+    "nrw_heat_demand_model": {
+      "url": "https://www.opengeodata.nrw.de/produkte/umwelt_klima/energie/kwp/KWP-NRW_05334002_Aachen_EPSG25832_Shape.zip",
+      "sha256": "4d5b605541856915d8cc9c133aeac66ec5adf2c3bbdbfb054b1fa435c153259c",
+      "size": 100604825,
+      "format": "zip of shapefiles",
+      "description": "Every building in Aachen with its heat demand today and under three renovation pathways, its 100 m cell, its street segment and an estimated heat pump performance factor.",
+      "source": { "ref": "nrw_kwp", "locator": "Layers WBM-NRW (base model), WBM-NRW-moderat/erhoeht/hoch (renovation projections) and WBM-NRW-Waermelinien (heat lines)" }
     },
-    "heat_demand": {
-      "file": "data/heat_demand_moderat.csv",
-      "dims": { "cell": "cell", "year": "year" },
-      "column": "demand",
-      "unit": "MWh/year",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["nrw_kwp"],
-        "method": "Space heating and hot water demand of every heated building, summed per cell (building Raster_ID = census cell id). 2022 is the base model; 2025–2045 are the model's moderate renovation projections."
-      }
+    "census_heating_grid": {
+      "url": "https://www.destatis.de/static/DE/zensus/gitterdaten/Gebaeude_mit_Wohnraum_nach_Energietraeger_der_Heizung.zip",
+      "sha256": "f08548435f9d9529e750514ba618c681ddbb14c76d87dfc6bc495cda31d6ca31",
+      "size": 20943358,
+      "format": "zip of CSV",
+      "description": "Residential buildings by heating energy carrier for every inhabited 100 m cell in Germany.",
+      "source": { "ref": "zensus2022_energy", "locator": "Zensus2022_Gebaeude_nach_Energietraeger_der_Heizung_100m-Gitter.csv" }
     },
-    "street_length": {
-      "file": "data/street_length.csv",
-      "dims": { "cell": "cell" },
-      "column": "length",
-      "unit": "m",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["nrw_kwp"],
-        "method": "Length of the model's heat line segments (streets with heat demand), each split among cells in proportion to the demand of the buildings it serves."
-      }
+    "heat_plan_blocks": {
+      "url": "https://wms.aachen.de/geofachdaten/services/kwp_wfs?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=app:kwp_baubloecke_join&OUTPUTFORMAT=application/geo%2Bjson",
+      "sha256": "82077d5447f0b22ad682ea16892189405023166bd8323c06dfa7e5982764a779",
+      "size": 23606735,
+      "format": "GeoJSON",
+      "description": "Building blocks of the adopted heat plan with the heat supplied by each carrier in the target scenario for 2022, 2030, 2035, 2040 and 2045.",
+      "source": { "ref": "aachen_heat_plan", "locator": "Layer app:kwp_baubloecke_join, properties q_fw_* (district heating) and q_nw_* (local heating)" }
     },
-    "heat_pump_spf": {
-      "file": "data/heat_pump_spf.csv",
-      "dims": { "cell": "cell" },
-      "column": "spf",
+    "renovation_pathway": {
+      "value": { "moderat": 1, "erhoeht": 0, "hoch": 0 },
+      "dims": ["renovation"],
       "unit": "dmnl",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["nrw_kwp"],
-        "method": "Demand-weighted mean of the model's air-source heat pump seasonal performance factor (JAZ_Luft) over the residential buildings of each cell."
-      }
-    },
-    "dh_expansion_year": {
-      "file": "data/dh_expansion_year.csv",
-      "dims": { "cell": "cell" },
-      "column": "year",
-      "unit": "year",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["aachen_heat_plan", "nrw_kwp"],
-        "method": "Each building is placed in its heat plan block. A cell's year is the first plan year (2022, 2030, 2035, 2040, 2045) by which blocks holding at least half of the cell's demand are supplied by district or local heating; 2100 means not planned."
-      }
-    },
-    "heat_plan_network_share": {
-      "file": "data/heat_plan_network_share.csv",
-      "dims": { "year": "year" },
-      "column": "share",
-      "unit": "dmnl",
-      "source": {
-        "script": "prep/heat-transition/prepare.py",
-        "from": ["aachen_heat_plan"],
-        "method": "District plus local heating supply divided by total supply over all heat plan blocks, per target year."
-      }
+      "source": { "assumption": "Baseline: the NRW model's moderate renovation pathway" }
     },
     "boiler_stock_2025": {
       "file": "data/boiler_stock_2025.csv",
@@ -316,6 +280,278 @@
   },
   "nodes": [
     {
+      "id": "read_buildings",
+      "label": "Buildings of the NRW model",
+      "semantics": "python",
+      "description": "Decodes the base layer of the NRW heat demand model straight out of the zip: one row per heated building.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "read_buildings",
+        "outputs": {
+          "buildings": {
+            "kind": "table",
+            "description": "Heated buildings (beheizt = 1) of layer WBM-NRW, with the columns the model uses.",
+            "columns": {
+              "id": { "description": "Fest_ID: the building's id in every layer of the NRW model" },
+              "cell": { "description": "Raster_ID: the 100 m census cell the building stands in" },
+              "residential": { "description": "WG_NWG = WG: residential building" },
+              "demand_kwh": { "unit": "kWh/year", "description": "RW_WW: space heating and hot water demand today" },
+              "spf_air": { "unit": "dmnl", "description": "JAZ_Luft: estimated seasonal performance factor of an air-source heat pump" },
+              "heat_line": { "description": "WLD_ID: the heat line (street segment) serving the building" },
+              "location": { "crs": "EPSG:25832", "description": "Centre of the footprint's bounding box" }
+            }
+          }
+        }
+      },
+      "inputs": { "nrw": "nrw_heat_demand_model" },
+      "outputs": { "buildings": "buildings" }
+    },
+    {
+      "id": "read_projections",
+      "label": "Demand under renovation pathways",
+      "semantics": "python",
+      "description": "Decodes the three renovation layers of the NRW model for the heated buildings.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "read_projections",
+        "outputs": {
+          "building_projections": {
+            "kind": "table",
+            "description": "Projected space heating and hot water demand per building in kWh/year, one column per pathway and year (layers WBM-NRW-moderat/erhoeht/hoch, columns RW_WW_<m|e|h>_<yy>).",
+            "columns": { "id": { "description": "Fest_ID" } }
+          }
+        }
+      },
+      "inputs": { "nrw": "nrw_heat_demand_model", "buildings": "buildings" },
+      "outputs": { "building_projections": "building_projections" }
+    },
+    {
+      "id": "read_heat_lines",
+      "label": "Heat lines of the NRW model",
+      "semantics": "python",
+      "description": "Decodes the heat line layer: street segments with heat demand.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "read_heat_lines",
+        "outputs": {
+          "heat_lines": {
+            "kind": "table",
+            "description": "Layer WBM-NRW-Waermelinien.",
+            "columns": {
+              "id": { "description": "WLD_ID" },
+              "street_length": { "unit": "m", "description": "Strassenla: length of the street segment" },
+              "course": { "crs": "EPSG:25832", "description": "The segment's course" }
+            }
+          }
+        }
+      },
+      "inputs": { "nrw": "nrw_heat_demand_model" },
+      "outputs": { "heat_lines": "heat_lines" }
+    },
+    {
+      "id": "read_census",
+      "label": "Census heating carriers in Aachen",
+      "semantics": "python",
+      "description": "Streams the nationwide census grid and keeps the cells that hold heated buildings of the NRW model.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "read_census",
+        "outputs": {
+          "census_cells": {
+            "kind": "table",
+            "description": "Residential buildings per 100 m cell by heating energy carrier, as published; \"–\" reads as 0 as the census documentation prescribes.",
+            "columns": { "cell": { "description": "GITTER_ID_100m in the NRW model's Raster_ID notation" } }
+          }
+        }
+      },
+      "inputs": { "census": "census_heating_grid", "buildings": "buildings" },
+      "outputs": { "census_cells": "census_cells" }
+    },
+    {
+      "id": "read_heat_plan",
+      "label": "Heat plan blocks",
+      "semantics": "python",
+      "description": "Reads the heat plan's building blocks from the WFS download, keeping every property.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "read_heat_plan",
+        "outputs": {
+          "heat_plan_blocks": {
+            "kind": "table",
+            "description": "Layer app:kwp_baubloecke_join. q_<carrier>_<yy> is the heat supplied by each carrier in the target scenario (fw = district, nw = local heating).",
+            "columns": { "geometry": { "crs": "EPSG:4326", "description": "Block outline as published" } }
+          }
+        }
+      },
+      "inputs": { "heat_plan": "heat_plan_blocks" },
+      "outputs": { "heat_plan_blocks": "heat_plan_table" }
+    },
+    {
+      "id": "select_cells",
+      "label": "Cells of the model",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "select_cells",
+        "outputs": {
+          "cells": {
+            "kind": "table",
+            "description": "Cells with census counts and at least one heated residential building in the NRW model."
+          }
+        }
+      },
+      "inputs": { "census_cells": "census_cells", "buildings": "buildings" },
+      "outputs": { "cells": "cells" }
+    },
+    {
+      "id": "heating_stock",
+      "label": "Heating stock per cell",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "heating_stock",
+        "snapshot": "snapshots/heating_stock.json",
+        "outputs": {
+          "heating_stock": {
+            "dims": ["cell", "tech"],
+            "unit": "buildings",
+            "description": "Census buildings per cell and heating energy carrier, mapped to seven technologies (biomass = wood/pellets + biogas; other = coal + none). Cells without heated residential buildings in the NRW model are dropped."
+          }
+        }
+      },
+      "inputs": { "census_cells": "census_cells", "cells": "cells" },
+      "outputs": { "heating_stock": "heating_stock_2022" }
+    },
+    {
+      "id": "heat_demand",
+      "label": "Heat demand per cell",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "heat_demand",
+        "snapshot": "snapshots/heat_demand.json",
+        "outputs": {
+          "heat_demand": {
+            "dims": ["cell", "renovation", "year"],
+            "unit": "MWh/year",
+            "description": "Space heating and hot water demand of every heated building, summed per cell (building Raster_ID = census cell id). 2022 is the base model; 2025–2045 are the model's projections for each renovation pathway."
+          }
+        }
+      },
+      "inputs": { "buildings": "buildings", "building_projections": "building_projections", "cells": "cells" },
+      "outputs": { "heat_demand": "heat_demand_by_pathway" }
+    },
+    {
+      "id": "street_length",
+      "label": "Street length per cell",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "street_length",
+        "snapshot": "snapshots/street_length.json",
+        "outputs": {
+          "street_length": {
+            "dims": ["cell"],
+            "unit": "m",
+            "description": "Length of the model's heat line segments (streets with heat demand), each split among cells in proportion to the demand of the buildings it serves."
+          }
+        }
+      },
+      "inputs": { "buildings": "buildings", "heat_lines": "heat_lines", "cells": "cells" },
+      "outputs": { "street_length": "street_length" }
+    },
+    {
+      "id": "heat_pump_spf",
+      "label": "Heat pump performance per cell",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "heat_pump_spf",
+        "snapshot": "snapshots/heat_pump_spf.json",
+        "outputs": {
+          "heat_pump_spf": {
+            "dims": ["cell"],
+            "unit": "dmnl",
+            "description": "Demand-weighted mean of the model's air-source heat pump seasonal performance factor (JAZ_Luft) over the residential buildings of each cell."
+          }
+        }
+      },
+      "inputs": { "buildings": "buildings", "cells": "cells" },
+      "outputs": { "heat_pump_spf": "heat_pump_spf" }
+    },
+    {
+      "id": "locate_buildings",
+      "label": "Buildings in heat plan blocks",
+      "semantics": "python",
+      "description": "Point-in-polygon join of the building centres with the heat plan block outlines, in EPSG:25832.",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "locate_buildings",
+        "outputs": {
+          "building_blocks": {
+            "kind": "table",
+            "description": "Each heated building's heat plan block; buildings outside every block have none.",
+            "columns": {
+              "first_network_year": { "unit": "year", "description": "First plan year (2022, 2030, 2035, 2040, 2045) in which the block is supplied by district or local heating; 2100 means never" },
+              "location": { "crs": "EPSG:25832" }
+            }
+          }
+        }
+      },
+      "inputs": { "buildings": "buildings", "heat_plan_blocks": "heat_plan_table" },
+      "outputs": { "building_blocks": "building_blocks" }
+    },
+    {
+      "id": "dh_expansion_year",
+      "label": "Network year per cell",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "dh_expansion_year",
+        "snapshot": "snapshots/dh_expansion_year.json",
+        "outputs": {
+          "dh_expansion_year": {
+            "dims": ["cell"],
+            "unit": "year",
+            "description": "The first plan year by which blocks holding at least half of the cell's demand are supplied by district or local heating; 2100 means not planned."
+          }
+        }
+      },
+      "inputs": { "buildings": "buildings", "building_blocks": "building_blocks", "cells": "cells" },
+      "outputs": { "dh_expansion_year": "dh_expansion_year" }
+    },
+    {
+      "id": "heat_plan_network_share",
+      "label": "Heat plan network share",
+      "semantics": "python",
+      "model": {
+        "script": "models/prepare_cells.py",
+        "entry": "heat_plan_network_share",
+        "snapshot": "snapshots/heat_plan_network_share.json",
+        "outputs": {
+          "heat_plan_network_share": {
+            "dims": ["year"],
+            "unit": "dmnl",
+            "description": "District plus local heating supply divided by total supply over all heat plan blocks, per target year."
+          }
+        }
+      },
+      "inputs": { "heat_plan_blocks": "heat_plan_table" },
+      "outputs": { "heat_plan_network_share": "heat_plan_network_share" }
+    },
+    {
+      "id": "renovation",
+      "label": "Renovation pathway",
+      "semantics": "equation",
+      "model": {
+        "variables": {
+          "heat_demand": { "equation": "SUM(by_pathway[cell, *] * pathway[*])", "units": "MWh/year", "dims": ["cell"] }
+        }
+      },
+      "inputs": { "by_pathway": "heat_demand_by_pathway", "pathway": "renovation_pathway" },
+      "outputs": { "heat_demand": "heat_demand" }
+    },
+    {
       "id": "heat_density",
       "label": "Linear heat density",
       "semantics": "equation",
@@ -438,6 +674,28 @@
       },
       "inputs": { "dh_share": "dh_heat_share", "target": "heat_plan_network_share" },
       "outputs": { "target_gap": "dh_target_gap" }
+    }
+  ],
+  "groups": [
+    {
+      "id": "prepare_cells",
+      "label": "Cell data from buildings, census and heat plan",
+      "description": "Decodes the raw downloads into tables, joins the NRW buildings to the census cells and the heat plan blocks, and sums them per cell. Every step is a function of models/prepare_cells.py run with Pyodide; the per-cell results are committed as snapshots, so the decoding steps only run when you ask for them.",
+      "nodes": [
+        "read_buildings",
+        "read_projections",
+        "read_heat_lines",
+        "read_census",
+        "read_heat_plan",
+        "select_cells",
+        "heating_stock",
+        "heat_demand",
+        "street_length",
+        "heat_pump_spf",
+        "locate_buildings",
+        "dh_expansion_year",
+        "heat_plan_network_share"
+      ]
     }
   ]
 }

@@ -47,7 +47,7 @@ export type StoryClaim = {
 
 export type StoryAssumptions = { ref: DataRef; inputs: UpstreamInput[] };
 
-export type UpstreamInput = { dataset: string; kind: 'sourced' | 'derived' | 'assumption'; text: string };
+export type UpstreamInput = { dataset: string; kind: 'sourced' | 'assumption'; text: string };
 
 export type StoryLink = { scenario: string; dataset?: string; node?: string; open: boolean };
 
@@ -134,7 +134,7 @@ export async function storyAssumptions(attrs: Record<string, string>, runs: Scen
   const ref = dataRefOf(attrs);
   const run = await runs(ref.scenario);
   tensorOf(run, ref.dataset);
-  const order = { assumption: 0, derived: 1, sourced: 2 };
+  const order = { assumption: 0, sourced: 1 };
   const inputs = upstreamInputs(run.pipeline, ref.dataset).sort((a, b) => order[a.kind] - order[b.kind] || a.dataset.localeCompare(b.dataset));
   return { ref, inputs };
 }
@@ -206,7 +206,7 @@ function upstreamInputs(pipeline: Pipeline, dataset: string): UpstreamInput[] {
     const entry = pipeline.datasets[name];
     if (!entry) return [];
     const source = entry.source;
-    const text = 'assumption' in source ? source.assumption : 'method' in source ? source.method : source.locator;
+    const text = 'assumption' in source ? source.assumption : source.locator;
     return [{ dataset: name, kind: provenanceKind(source), text }];
   });
 }

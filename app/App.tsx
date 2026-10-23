@@ -3,10 +3,12 @@ import { Dynamic } from 'solid-js/web';
 import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
 import type { RunResult } from '../lib/runtime/run';
 import { BASELINE, createRunCache } from '../lib/runtime/runs';
-import { semantics } from '../lib/semantics';
-import { DetailPanel } from './components/DetailPanel';
+import { createSemantics } from '../lib/semantics';
+import { DetailPanel, type Compute } from './components/DetailPanel';
 import { GraphView, type Selection } from './graph/GraphView';
+import { groupOfDataset, groupOfNode, groupsOf } from './graph/groups';
 import type { FocusTarget, StoryContext } from './story/elements';
+import { browserPythonHost } from './python/host';
 import { StoryPane } from './story/StoryPane';
 import { modelViews } from './views';
 
@@ -16,7 +18,7 @@ const readText = async (path: string): Promise<string> => {
   return response.text();
 };
 
-const runOf = createRunCache(readText, semantics);
+const runOf = createRunCache(readText, createSemantics(browserPythonHost()));
 
 /** Which panes are visible: the story alone, story and model side by side, or the model alone. */
 type View = 'story' | 'split' | 'model';
@@ -28,13 +30,43 @@ export function App() {
   const [selection, setSelection] = createSignal<Selection>();
   const [open, setOpen] = createSignal<string>();
   const [view, setView] = createSignal<View>('model');
+  const [expanded, setExpanded] = createSignal<string[]>([]);
   const [reveal, setReveal] = createSignal<Selection | undefined>(undefined, { equals: false });
   const entry = createMemo(() => entries()?.[pipelineIndex()]);
-  syncWithUrl({ entries, pipelineIndex, setPipelineIndex, scenarioIndex, setScenarioIndex, selection, setSelection, open, setOpen, view, setView });
-  const [runs] = createResource(
+  syncWithUrl({
+    entries,
+    pipelineIndex,
+    setPipelineIndex,
+    scenarioIndex,
+    setScenarioIndex,
+    selection,
+    setSelection,
+    open,
+    setOpen,
+    view,
+    setView,
+    expanded,
+    setExpanded,
+  });
+  const [runs, { refetch }] = createResource(
     () => entry() && { entry: entry()!, scenario: scenarioIndex() },
     ({ entry, scenario }) => runEntry(entry, scenario),
   );
+  const toggleGroup = (id: string) => setExpanded((ids) => (ids.includes(id) ? ids.filter((g) => g !== id) : [...ids, id]));
+  createEffect(() => {
+    const s = selection();
+    const result = runs.latest?.result;
+    if (!s || !result) return;
+    const group = s.kind === 'node' ? groupOfNode(result, s.id) : s.kind === 'dataset' ? groupOfDataset(groupsOf(result), s.id) : undefined;
+    if (group && !expanded().includes(group)) setExpanded((ids) => [...ids, group]);
+  });
+  const compute: Compute = async (nodeIds, onLog) => {
+    const result = runs.latest?.result;
+    if (!result) return;
+    for (const id of nodeIds) await result.nodes.get(id)?.compute?.(onLog);
+    runOf.clear();
+    await refetch();
+  };
   const [storyText] = createResource(() => entry()?.story, readText);
   const storyShown = () => view() !== 'model';
   const modelShown = () => view() !== 'story';
@@ -44,6 +76,7 @@ export function App() {
     setScenarioIndex(-1);
     setSelection(undefined);
     setOpen(undefined);
+    setExpanded([]);
     setView(defaultView(entries()?.[index]));
   };
   const togglePane = (pane: 'story' | 'model') => {
@@ -151,8 +184,10 @@ export function App() {
                         baseline={r().baseline}
                         selected={selection()}
                         reveal={reveal()}
+                        expanded={expanded()}
                         onSelect={setSelection}
                         onOpen={openNode}
+                        onToggleGroup={toggleGroup}
                       />
                     </div>
                     <Show when={selection()}>
@@ -161,8 +196,12 @@ export function App() {
                           selection={s()}
                           result={r().result}
                           baseline={r().baseline}
+                          expanded={expanded()}
                           canOpen={openable}
                           onOpen={openNode}
+                          onSelect={setSelection}
+                          onToggleGroup={toggleGroup}
+                          onCompute={compute}
                           onClose={() => setSelection(undefined)}
                         />
                       )}
@@ -176,11 +215,16 @@ export function App() {
                       <button onClick={() => setOpen(undefined)}>← Pipeline</button>
                       <strong>{node().node.label}</strong>
                       <span class="semantics">{node().node.semantics}</span>
-                      <Show when={typeof node().node.model === 'string'}>
-                        <code class="muted">{node().node.model as string}</code>
+                      <Show when={typeof node().node.model === 'string' ? (node().node.model as string) : node().description?.code?.path}>
+                        {(path) => <code class="muted">{path()}</code>}
                       </Show>
                     </div>
-                    <Dynamic component={modelViews[node().node.semantics]} node={node()} baseline={r().baseline?.nodes.get(node().node.id)} />
+                    <Dynamic
+                      component={modelViews[node().node.semantics]}
+                      node={node()}
+                      baseline={r().baseline?.nodes.get(node().node.id)}
+                      result={r().result}
+                    />
                   </div>
                 )}
               </Show>
@@ -211,7 +255,7 @@ function Summary(props: { runs: Runs; expectation?: string }) {
 
 type Runs = { result: RunResult; baseline?: RunResult };
 
-/** Mirrors the view in `?pipeline=housing&scenario=no-quota&select=dataset:quota&open=housing_market&view=split` so views can be linked. */
+/** Mirrors the view in `?pipeline=housing&scenario=no-quota&select=dataset:quota&open=housing_market&expand=prepare&view=split` so views can be linked. */
 function syncWithUrl(state: {
   entries: () => PipelineEntry[] | undefined;
   pipelineIndex: () => number;
@@ -224,6 +268,8 @@ function syncWithUrl(state: {
   setOpen: (nodeId: string | undefined) => void;
   view: () => View;
   setView: (view: View) => void;
+  expanded: () => string[];
+  setExpanded: (ids: string[]) => void;
 }) {
   let restored = false;
   createEffect(() => {
@@ -235,8 +281,9 @@ function syncWithUrl(state: {
     state.setPipelineIndex(pipeline);
     state.setScenarioIndex(entries[pipeline]!.scenarios.findIndex((s) => s.name === params.get('scenario')));
     const [kind, id] = (params.get('select') ?? '').split(':');
-    if ((kind === 'dataset' || kind === 'node') && id) state.setSelection({ kind, id });
+    if ((kind === 'dataset' || kind === 'node' || kind === 'group') && id) state.setSelection({ kind, id });
     state.setOpen(params.get('open') ?? undefined);
+    state.setExpanded((params.get('expand') ?? '').split(',').filter(Boolean));
     const view = params.get('view');
     const hasStory = entries[pipeline]!.story !== undefined;
     state.setView(hasStory && (view === 'story' || view === 'split' || view === 'model') ? view : defaultView(entries[pipeline]));
@@ -251,6 +298,7 @@ function syncWithUrl(state: {
     if (selection) params.set('select', `${selection.kind}:${selection.id}`);
     const open = state.open();
     if (open) params.set('open', open);
+    if (state.expanded().length > 0) params.set('expand', state.expanded().join(','));
     if (entry.story) params.set('view', state.view());
     history.replaceState(null, '', `?${params}`);
   });

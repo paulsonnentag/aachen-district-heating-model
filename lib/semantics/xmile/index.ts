@@ -14,7 +14,8 @@ export const xmileSemantics: Semantics = {
       ports: portsOf(model),
       issues: [...checkModel(model), ...checkProvenance(model)],
       description: describeXmile(model),
-      execute: async (inputs) => runXmile(text, inputs),
+      fingerprint: text,
+      execute: async (inputs) => runXmile(text, inputs.tensors),
     };
   },
 };

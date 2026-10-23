@@ -8,6 +8,17 @@ export const PipelineSchema = z.lazy(() =>
     sources: z.record(z.string(), SourceSchema),
     datasets: z.record(z.string(), DatasetSchema),
     nodes: z.array(NodeSchema),
+    groups: z.array(GroupSchema).default([]),
+  }),
+);
+
+/** Nodes shown as one box until expanded; the group's inputs and outputs follow from its nodes' wiring. */
+export const GroupSchema = z.lazy(() =>
+  z.object({
+    id: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+    nodes: z.array(z.string()).min(1),
   }),
 );
 
@@ -23,7 +34,7 @@ export const NodeSchema = z.lazy(() =>
   }),
 );
 
-export const DatasetSchema = z.lazy(() => z.union([InlineDatasetSchema, FileDatasetSchema]));
+export const DatasetSchema = z.lazy(() => z.union([InlineDatasetSchema, FileDatasetSchema, RemoteFileDatasetSchema]));
 
 const InlineDatasetSchema = z.lazy(() =>
   z.object({
@@ -46,16 +57,28 @@ const FileDatasetSchema = z.lazy(() =>
   }),
 );
 
+/** A raw download that nodes read as a file rather than as a tensor, pinned by its hash. */
+const RemoteFileDatasetSchema = z.lazy(() =>
+  z.object({
+    url: z.string(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    size: z.number().int().positive(),
+    format: z.string(),
+    source: ProvenanceSchema,
+    description: z.string().optional(),
+  }),
+);
+
 export type NestedValue = number | { [key: string]: NestedValue };
 
 const NestedValueSchema: z.ZodType<NestedValue> = z.lazy(() =>
   z.union([z.number(), z.record(z.string(), NestedValueSchema)]),
 );
 
+/** Every catalog value is read from a source or stated as an assumption; anything derived is computed by a node. */
 export const ProvenanceSchema = z.union([
   z.strictObject({ ref: z.string(), locator: z.string(), note: z.string().optional() }),
   z.strictObject({ assumption: z.string() }),
-  z.strictObject({ script: z.string(), from: z.array(z.string()).min(1), method: z.string() }),
 ]);
 
 export const SourceSchema = z.object({
@@ -80,7 +103,9 @@ export const IndexSchema = z.object({
 
 export type Pipeline = z.infer<typeof PipelineSchema>;
 export type PipelineNode = z.infer<typeof NodeSchema>;
+export type PipelineGroup = z.infer<typeof GroupSchema>;
 export type Dataset = z.infer<typeof DatasetSchema>;
+export type RemoteFileDataset = z.infer<typeof RemoteFileDatasetSchema>;
 export type Provenance = z.infer<typeof ProvenanceSchema>;
 export type Source = z.infer<typeof SourceSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;
@@ -92,17 +117,18 @@ export type Issue = {
   message: string;
 };
 
+export function isRemoteFile(dataset: Dataset): dataset is RemoteFileDataset {
+  return 'url' in dataset;
+}
+
 export function isAssumption(provenance: Provenance): provenance is { assumption: string } {
   return 'assumption' in provenance;
 }
 
-/** Sourced: read from one document; derived: computed from sources by a preparation script. */
-export function provenanceKind(provenance: Provenance): 'sourced' | 'assumption' | 'derived' {
-  if ('assumption' in provenance) return 'assumption';
-  return 'script' in provenance ? 'derived' : 'sourced';
+export function provenanceKind(provenance: Provenance): 'sourced' | 'assumption' {
+  return 'assumption' in provenance ? 'assumption' : 'sourced';
 }
 
 export function sourceRefs(provenance: Provenance): string[] {
-  if ('ref' in provenance) return [provenance.ref];
-  return 'from' in provenance ? provenance.from : [];
+  return 'ref' in provenance ? [provenance.ref] : [];
 }

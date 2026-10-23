@@ -79,6 +79,10 @@ export function formatValue(value: number): string {
   return precise.format(value);
 }
 
+export function formatBytes(bytes: number): string {
+  return `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
+}
+
 export function formatCompact(value: number): string {
   return Math.abs(value) < 0.01 && value !== 0 ? value.toExponential(0) : compact.format(value);
 }

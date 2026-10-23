@@ -10,6 +10,7 @@ export function validateGraph(
     ...checkSources(pipeline),
     ...checkProducers(pipeline),
     ...checkNodes(pipeline, prepared),
+    ...checkGroups(pipeline),
   ];
   const { order, cyclic } = topologicalOrder(pipeline);
   if (cyclic.length > 0) issues.push({ severity: 'error', where: 'pipeline', message: `Cycle between nodes: ${cyclic.join(', ')}` });
@@ -65,6 +66,23 @@ function checkNodes(pipeline: Pipeline, prepared: Map<string, PreparedNode | Err
       for (const port of Object.keys(node.inputs)) if (!inputs.includes(port)) issues.push({ severity: 'error', where, message: `"${port}" is not an input of the model` });
     }
     for (const port of Object.keys(node.outputs)) if (!outputs.includes(port)) issues.push({ severity: 'error', where, message: `"${port}" is not an output of the model` });
+  }
+  return issues;
+}
+
+function checkGroups(pipeline: Pipeline): Issue[] {
+  const issues: Issue[] = [];
+  const nodeIds = new Set(pipeline.nodes.map((n) => n.id));
+  const groupOf = new Map<string, string>();
+  for (const group of pipeline.groups) {
+    const where = `group ${group.id}`;
+    if (nodeIds.has(group.id)) issues.push({ severity: 'error', where, message: 'A node has the same id' });
+    for (const id of group.nodes) {
+      if (!nodeIds.has(id)) issues.push({ severity: 'error', where, message: `Unknown node "${id}"` });
+      const other = groupOf.get(id);
+      if (other) issues.push({ severity: 'error', where, message: `Node "${id}" is also in group ${other}` });
+      groupOf.set(id, group.id);
+    }
   }
   return issues;
 }

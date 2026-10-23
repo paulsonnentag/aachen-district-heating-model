@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, Show } from 'solid-js';
-import type { NodeResult } from '../../lib/runtime/run';
+import type { NodeResult, RunResult } from '../../lib/runtime/run';
 import type { Tensor } from '../../lib/runtime/tensor';
 import type { VariableDescription, VariableTrace } from '../../lib/semantics/types';
 import { detailChart } from '../components/DetailPanel';
@@ -21,7 +21,7 @@ import {
   type StockFlowLayout,
 } from './layout';
 
-export type ModelViewProps = { node: NodeResult; baseline?: NodeResult };
+export type ModelViewProps = { node: NodeResult; baseline?: NodeResult; result?: RunResult };
 
 /** Stock-and-flow diagram of an XMILE node, with each variable's values from the run. */
 export function StockFlowView(props: ModelViewProps) {

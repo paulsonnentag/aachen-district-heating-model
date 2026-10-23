@@ -1,4 +1,5 @@
 node_modules
 dist
-prep/*/raw
+.cache
+__pycache__
 .venv
