@@ -50,6 +50,7 @@ function runOnce(entry: PipelineEntry): Promise<{ result: RunResult; written: Ke
         store: { get: async () => undefined, put: async (result) => void written.push(result) },
       });
       const result = await runPipeline(resolvePipeline(entry), semantics, scopedReader(readText, entry.dir), update ? cachedDownload : stale);
+      if (update) for (const node of result.nodes.values()) if (node.status === 'idle') await node.compute?.(() => {});
       return { result, written };
     })();
     runs.set(entry.path, run);

@@ -8,15 +8,12 @@ export type GroupInfo = {
   inputs: string[];
   /** Datasets the group makes that something outside reads, or nothing reads at all. */
   outputs: string[];
-  /** Datasets made and read only inside the group: hidden while it is collapsed. */
+  /** Datasets only the group's steps read, whether they make them or they are sources: hidden while it is collapsed. */
   internal: string[];
 };
 
 export function groupsOf(result: RunResult): Map<string, GroupInfo> {
-  const consumers = new Map<string, string[]>();
-  for (const node of result.pipeline.nodes) {
-    for (const name of Object.values(node.inputs)) consumers.set(name, [...(consumers.get(name) ?? []), node.id]);
-  }
+  const consumers = consumersOf(result);
   const groups = new Map<string, GroupInfo>();
   for (const group of result.pipeline.groups) {
     const members = new Set(group.nodes);
@@ -24,15 +21,25 @@ export function groupsOf(result: RunResult): Map<string, GroupInfo> {
     const produced = new Set(nodes.flatMap((n) => Object.values(n.node.outputs)));
     const read = new Set(nodes.flatMap((n) => Object.values(n.node.inputs)));
     const isInternal = (name: string) => (consumers.get(name)?.length ?? 0) > 0 && consumers.get(name)!.every((c) => members.has(c));
+    const sources = [...read].filter((name) => !produced.has(name) && !('node' in (result.datasets.get(name)?.producer ?? {})));
     groups.set(group.id, {
       group,
       nodes,
-      inputs: [...read].filter((name) => !produced.has(name)),
+      inputs: [...read].filter((name) => !produced.has(name) && !(sources.includes(name) && isInternal(name))),
       outputs: [...produced].filter((name) => !isInternal(name)),
-      internal: [...produced].filter(isInternal),
+      internal: [...produced, ...sources].filter(isInternal),
     });
   }
   return groups;
+}
+
+/** The nodes that read each dataset. */
+export function consumersOf(result: RunResult): Map<string, string[]> {
+  const consumers = new Map<string, string[]>();
+  for (const node of result.pipeline.nodes) {
+    for (const name of Object.values(node.inputs)) consumers.set(name, [...(consumers.get(name) ?? []), node.id]);
+  }
+  return consumers;
 }
 
 export function groupOfNode(result: RunResult, nodeId: string): string | undefined {

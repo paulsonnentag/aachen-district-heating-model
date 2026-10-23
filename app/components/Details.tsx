@@ -284,7 +284,7 @@ export function computeGroup(info: GroupInfo, result: RunResult, actions: Action
 }
 
 export function downloadSize(info: GroupInfo, result: RunResult): number {
-  return info.inputs.reduce((total, name) => total + (result.datasets.get(name)?.file?.size ?? 0), 0);
+  return [...info.inputs, ...info.internal].reduce((total, name) => total + (result.datasets.get(name)?.file?.size ?? 0), 0);
 }
 
 function DatasetLinks(props: { names: string[]; actions: Actions }) {

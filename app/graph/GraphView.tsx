@@ -4,14 +4,14 @@ import type { DatasetResult, NodeResult, RunResult } from '../../lib/runtime/run
 import { CACHE_LABELS, ComputeButton, computeGroup, DatasetInfo, NodeDetail, STATUS_LABELS } from '../components/Details';
 import { currentView, previewHeight, ValueView, valueSummary, viewsOf, ViewPicker, type ViewOption } from '../components/ValueView';
 import { keyOf, type Actions, type Selection } from '../workbench';
-import { groupsOf, groupStatus, type GroupInfo } from './groups';
+import { consumersOf, groupsOf, groupStatus, type GroupInfo } from './groups';
 import { layoutGraph, type Box, type Layout, type LayoutEdge, type LayoutItem } from './layout';
 
 const DATASET_WIDTH = 220;
 const DATASET_HEADER = 44;
 const PICKER_HEIGHT = 18;
-const NODE_SIZE = { width: 200, height: 64 };
-const GROUP_SIZE = { width: 220, height: 76 };
+const NODE_SIZE = { width: 230, height: 100 };
+const GROUP_SIZE = { width: 250, height: 112 };
 const FRAME_HEADER = 32;
 /** Expanded boxes have a fixed size, so the layout does not depend on what they draw; their content scrolls. */
 const EXPANDED_DATASET = { width: 480, height: 500 };
@@ -24,10 +24,13 @@ export function GraphView(props: {
   selected?: Selection;
   /** Scrolls this box to the centre each time it is set. */
   reveal?: Selection;
+  /** Nodes and groups whose datasets are shown. */
+  unfolded: string[];
   expanded: string[];
   actions: Actions;
 }) {
   const groups = createMemo(() => groupsOf(props.result));
+  const shown = createMemo(() => shownDatasets(props.result, groups(), props.unfolded, props.expanded, props.selected));
   const viewOf = (dataset: DatasetResult) =>
     currentView(viewsOf(dataset), props.actions.viewOf(dataset.name), props.result.pipeline.views[dataset.name]);
   const datasetHeight = (name: string) => {
@@ -35,7 +38,7 @@ export function GraphView(props: {
     const view = dataset && viewOf(dataset);
     return DATASET_HEADER + previewHeight(dataset, view?.name) + (view ? PICKER_HEIGHT : 0);
   };
-  const graph = createMemo(() => buildGraph(props.result, groups(), new Set(props.expanded), datasetHeight));
+  const graph = createMemo(() => buildGraph(props.result, groups(), new Set(props.expanded), shown(), datasetHeight));
   const layout = () => graph().layout;
   const [hovered, setHovered] = createSignal<string>();
   const [zoom, setZoom] = createSignal(1);
@@ -60,6 +63,15 @@ export function GraphView(props: {
     const target = props.reveal;
     if (target) requestAnimationFrame(() => centre(target));
   });
+  /** Unfolding re-lays out the graph; the clicked box stays where it was on screen. */
+  const unfold = (target: Selection) => {
+    const before = layout().boxes.get(keyOf(target));
+    props.actions.unfold(target);
+    const after = layout().boxes.get(keyOf(target));
+    const canvas = frame.closest('.canvas') as HTMLElement | null;
+    if (before && after && canvas) canvas.scrollBy((after.x - before.x) * zoom(), (after.y - before.y) * zoom());
+  };
+  const isUnfolded = (kind: Selection['kind'], id: string) => props.unfolded.includes(keyOf({ kind, id }));
   const isSelected = (kind: Selection['kind'], id: string) => props.selected?.kind === kind && props.selected.id === id;
   const isExpanded = (kind: Selection['kind'], id: string) => props.expanded.includes(keyOf({ kind, id }));
 
@@ -106,7 +118,9 @@ export function GraphView(props: {
                   box={layout().boxes.get(itemId)!}
                   info={groups().get(id)!}
                   selected={isSelected('group', id)}
+                  unfolded={isUnfolded('group', id)}
                   onHover={(on) => setHovered(on ? itemId : undefined)}
+                  onUnfold={unfold}
                   actions={props.actions}
                 />
               );
@@ -124,7 +138,9 @@ export function GraphView(props: {
                       result={props.result}
                       selected={isSelected('node', node.id)}
                       expanded={isExpanded('node', node.id)}
+                      unfolded={isUnfolded('node', node.id)}
                       onHover={(on) => setHovered(on ? id : undefined)}
+                      onUnfold={unfold}
                       actions={props.actions}
                     />
                   )}
@@ -239,21 +255,24 @@ function ModelBox(props: {
   result: RunResult;
   selected: boolean;
   expanded: boolean;
+  unfolded: boolean;
   onHover: (on: boolean) => void;
+  onUnfold: (target: Selection) => void;
   actions: Actions;
 }) {
   const target = (): Selection => ({ kind: 'node', id: props.node.node.id });
   return (
     <div
       class={`box model status-${props.node.status}`}
-      classList={{ selected: props.selected, expanded: props.expanded }}
+      classList={{ selected: props.selected, expanded: props.expanded, unfolded: props.unfolded }}
       style={position(props.box)}
+      title={props.expanded ? undefined : props.node.node.description}
       onMouseEnter={() => props.onHover(true)}
       onMouseLeave={() => props.onHover(false)}
       onClick={(e) => {
         e.stopPropagation();
         if (props.expanded) props.actions.select(target());
-        else props.actions.toggle(target());
+        else props.onUnfold(target());
       }}
     >
       <div
@@ -266,8 +285,11 @@ function ModelBox(props: {
       >
         <div class="model-title">
           <span class="model-label">{props.node.node.label}</span>
-          <BoxButtons target={target()} expanded={props.expanded} actions={props.actions} />
+          <BoxButtons target={target()} expanded={props.expanded} details actions={props.actions} />
         </div>
+        <Show when={!props.expanded && props.node.node.description}>
+          <p class="model-description">{props.node.node.description}</p>
+        </Show>
         <div class="model-meta">
           <span class="semantics">{props.node.node.semantics}</span>
           <Show when={props.node.status !== 'ok'}>
@@ -288,10 +310,24 @@ function ModelBox(props: {
   );
 }
 
-/** Fullscreen and, once expanded, collapse; they take the click so the box itself does not toggle. */
-function BoxButtons(props: { target: Selection; expanded: boolean; actions: Actions }) {
+/**
+ * Details (for boxes whose click unfolds them instead), fullscreen and, once expanded, collapse;
+ * they take the click so the box itself does not react.
+ */
+function BoxButtons(props: { target: Selection; expanded: boolean; details?: boolean; actions: Actions }) {
   return (
     <span class="box-buttons" classList={{ shown: props.expanded }}>
+      <Show when={props.details && !props.expanded}>
+        <button
+          title="Details"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.actions.toggle(props.target);
+          }}
+        >
+          <DetailsIcon />
+        </button>
+      </Show>
       <button
         title="Fullscreen"
         onClick={(e) => {
@@ -316,6 +352,14 @@ function BoxButtons(props: { target: Selection; expanded: boolean; actions: Acti
   );
 }
 
+function DetailsIcon() {
+  return (
+    <svg class="icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M1.5 2.5h9M1.5 6h9M1.5 9.5h6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    </svg>
+  );
+}
+
 function FullscreenIcon() {
   return (
     <svg class="icon" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
@@ -324,29 +368,47 @@ function FullscreenIcon() {
   );
 }
 
-function GroupBox(props: { box: Box; info: GroupInfo; selected: boolean; onHover: (on: boolean) => void; actions: Actions }) {
-  const status = () => groupStatus(props.info);
+function GroupBox(props: {
+  box: Box;
+  info: GroupInfo;
+  selected: boolean;
+  unfolded: boolean;
+  onHover: (on: boolean) => void;
+  onUnfold: (target: Selection) => void;
+  actions: Actions;
+}) {
   const target = (): Selection => ({ kind: 'group', id: props.info.group.id });
   return (
     <div
-      class={`box model group status-${status().status}`}
-      classList={{ selected: props.selected }}
+      class={`box model group status-${groupStatus(props.info).status}`}
+      classList={{ selected: props.selected, unfolded: props.unfolded }}
       style={position(props.box)}
       title={props.info.group.description}
       onMouseEnter={() => props.onHover(true)}
       onMouseLeave={() => props.onHover(false)}
       onClick={(e) => {
         e.stopPropagation();
-        props.actions.toggle(target());
+        props.onUnfold(target());
       }}
     >
-      <span class="group-toggle">▸</span>
+      <button
+        class="group-toggle"
+        title="Show its steps"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.actions.toggle(target());
+        }}
+      >
+        ▸
+      </button>
       <div class="model-title">
         <span class="model-label">{props.info.group.label}</span>
         <BoxButtons target={target()} expanded={false} actions={props.actions} />
       </div>
+      <Show when={props.info.group.description}>
+        <p class="model-description">{props.info.group.description}</p>
+      </Show>
       <div class="model-meta">
-        <span class="semantics">{props.info.nodes.length} steps</span>
         <GroupStatusNote info={props.info} />
       </div>
     </div>
@@ -367,7 +429,7 @@ function GroupFrame(props: { box: Box; info: GroupInfo; result: RunResult; selec
       >
         <span class="group-toggle">▾</span>
         <span class="group-label">{props.info.group.label}</span>
-        <span class="muted">{props.info.nodes.length} steps</span>
+        <span class="group-description">{props.info.group.description}</span>
         <GroupStatusNote info={props.info} />
         <Show when={groupStatus(props.info).idle.length > 0}>
           <ComputeButton label="Compute all steps" inline run={(onLog) => computeGroup(props.info, props.result, props.actions, onLog)} />
@@ -413,10 +475,18 @@ type Graph = {
 };
 
 /**
- * A collapsed group is one box and hides the datasets only its steps use. An expanded group is laid
- * out on its own and placed in the pipeline's layout as one framed item, so its steps stay together.
+ * Only the `shown` datasets get a box; between two computations, a hidden dataset becomes an edge
+ * from the one that makes it to the one that reads it. A collapsed group is one box and hides the
+ * datasets only its steps use. An expanded group is laid out on its own and placed in the
+ * pipeline's layout as one framed item, so its steps stay together.
  */
-function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded: Set<string>, datasetHeight: (name: string) => number): Graph {
+function buildGraph(
+  result: RunResult,
+  groups: Map<string, GroupInfo>,
+  expanded: Set<string>,
+  shown: Set<string>,
+  datasetHeight: (name: string) => number,
+): Graph {
   const isExpanded = (kind: Selection['kind'], id: string) => expanded.has(keyOf({ kind, id }));
   const groupOfNode = new Map<string, string>();
   const groupOfDataset = new Map<string, string>();
@@ -437,6 +507,7 @@ function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded:
     return item.id;
   };
   const datasetItem = (name: string): string | undefined => {
+    if (!shown.has(name)) return undefined;
     const group = groupOfDataset.get(name);
     if (group && !isExpanded('group', group)) return undefined;
     const size = isExpanded('dataset', name) ? EXPANDED_DATASET : { width: DATASET_WIDTH, height: datasetHeight(name) };
@@ -450,15 +521,19 @@ function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded:
 
   const drawn = new Map<string, LayoutEdge>();
   const connect = (from: string | undefined, to: string | undefined) => {
-    if (from && to) drawn.set(`${from}>${to}`, { from, to });
+    if (from && to && from !== to) drawn.set(`${from}>${to}`, { from, to });
   };
+  const producerOf = new Map(result.pipeline.nodes.flatMap((node) => Object.values(node.outputs).map((name) => [name, node.id] as const)));
   for (const node of result.pipeline.nodes) {
-    const inputs = Object.values(node.inputs).map(datasetItem);
+    const inputs = Object.values(node.inputs).map((name) => {
+      const producer = producerOf.get(name);
+      return datasetItem(name) ?? (producer ? nodeItem(producer) : undefined);
+    });
     const id = nodeItem(node.id);
     for (const input of inputs) connect(input, id);
     for (const name of Object.values(node.outputs)) connect(id, datasetItem(name));
   }
-  for (const name of result.datasets.keys()) datasetItem(name);
+  for (const name of shown) datasetItem(name);
 
   const lift = (id: string) => (containerOf.get(id) ? frameKey(containerOf.get(id)!) : id);
   const edgesIn = new Map<string, Map<string, LayoutEdge>>([...containers.keys()].map((c) => [c, new Map()]));
@@ -488,6 +563,30 @@ function buildGraph(result: RunResult, groups: Map<string, GroupInfo>, expanded:
     expanded: [...inner.keys()],
     collapsed: [...groups.keys()].filter((id) => !isExpanded('group', id) && boxes.has(keyOf({ kind: 'group', id }))),
   };
+}
+
+/** The model's results, what the unfolded nodes and groups read and make, and the datasets selected or expanded. */
+function shownDatasets(
+  result: RunResult,
+  groups: Map<string, GroupInfo>,
+  unfolded: string[],
+  expanded: string[],
+  selected: Selection | undefined,
+): Set<string> {
+  const consumers = consumersOf(result);
+  const shown = new Set([...result.datasets.keys()].filter((name) => !consumers.has(name)));
+  const datasetsOf = (key: string): string[] => {
+    const node = result.nodes.get(key.slice('node:'.length))?.node;
+    if (key.startsWith('node:') && node) return [...Object.values(node.inputs), ...Object.values(node.outputs)];
+    const info = groups.get(key.slice('group:'.length));
+    if (key.startsWith('group:') && info) return [...info.inputs, ...info.outputs];
+    return [];
+  };
+  for (const key of unfolded) for (const name of datasetsOf(key)) shown.add(name);
+  for (const key of [...expanded, ...(selected ? [keyOf(selected)] : [])]) {
+    if (key.startsWith('dataset:')) shown.add(key.slice('dataset:'.length));
+  }
+  return new Set([...shown].filter((name) => result.datasets.has(name)));
 }
 
 function edgePath(from: Box, to: Box): string {

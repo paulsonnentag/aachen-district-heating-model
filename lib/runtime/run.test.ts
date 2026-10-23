@@ -110,15 +110,12 @@ describe('heat transition pipeline', () => {
     for (const { scenario } of heat.scenarios) expectClean(await runEntry(heat, scenario));
   });
 
-  it('leaves the decoding steps idle while the snapshots downstream cover the run', () => {
-    for (const id of ['read_buildings', 'read_census', 'read_projections', 'select_cells', 'locate_buildings']) {
-      expect(baseline.nodes.get(id)!.status).toBe('idle');
+  it('reads every step of the group from its snapshot without downloading anything', () => {
+    for (const id of ['read_buildings', 'read_census', 'read_projections', 'select_cells', 'locate_buildings', 'heating_stock']) {
+      const step = baseline.nodes.get(id)!;
+      expect({ id, status: step.status, origin: step.cache?.origin }).toEqual({ id, status: 'ok', origin: 'snapshot' });
     }
-    const stock = baseline.nodes.get('heating_stock')!;
-    expect(stock.status).toBe('ok');
-    expect(stock.cache?.origin).toBe('snapshot');
-    expect(stock.compute).toBeTypeOf('function');
-    expect(baseline.datasets.get('buildings')!.table).toBeUndefined();
+    expect(baseline.datasets.get('buildings')!.table).toBeDefined();
     expect(baseline.datasets.get('heat_plan_blocks')!.table).toBeUndefined();
     expect(baseline.datasets.get('heat_plan_blocks')!.compute).toBeTypeOf('function');
   });
@@ -129,7 +126,7 @@ describe('heat transition pipeline', () => {
       label: 'overlap',
       patch: { groups: [...(heat.raw as { groups: unknown[] }).groups, { id: 'extra', label: 'extra', nodes: ['read_buildings'] }] },
     });
-    expect(result.issues.map((i) => i.message)).toContain('Node "read_buildings" is also in group prepare_cells');
+    expect(result.issues.map((i) => i.message)).toContain('Node "read_buildings" is also in group area');
   });
 });
 

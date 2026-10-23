@@ -1,7 +1,7 @@
 {
   "id": "aachen-heat-transition",
   "title": "Aachen heat transition",
-  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data is computed from the raw public downloads by a group of steps: Python decodes the downloads, simple formulas sum them per cell.",
+  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data is computed from the raw public downloads: Python decodes them, simple formulas sum them per cell.",
   "sources": {
     "ksg": {
       "title": "Bundes-Klimaschutzgesetz § 3: national climate targets",
@@ -296,6 +296,7 @@
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "read_buildings",
+        "snapshot": "snapshots/read_buildings.json",
         "outputs": {
           "buildings": {
             "kind": "table",
@@ -323,6 +324,7 @@
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "read_projections",
+        "snapshot": "snapshots/read_projections.json",
         "outputs": {
           "building_projections": {
             "kind": "table",
@@ -345,6 +347,7 @@
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "read_heat_lines",
+        "snapshot": "snapshots/read_heat_lines.json",
         "outputs": {
           "heat_lines": {
             "kind": "table",
@@ -368,6 +371,7 @@
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "read_census",
+        "snapshot": "snapshots/read_census.json",
         "outputs": {
           "census_cells": {
             "kind": "table",
@@ -382,10 +386,12 @@
     {
       "id": "select_cells",
       "label": "Cells of the model",
+      "description": "Keeps the census cells that have heating counts and at least one heated residential building: the 3,660 cells the model runs on.",
       "semantics": "python",
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "select_cells",
+        "snapshot": "snapshots/select_cells.json",
         "outputs": {
           "cells": {
             "kind": "table",
@@ -399,6 +405,7 @@
     {
       "id": "heating_stock",
       "label": "Heating stock per cell",
+      "description": "Counts the residential buildings of each cell by heating technology in 2022, from the census heating carriers.",
       "semantics": "aggregate",
       "model": {
         "rows": "census",
@@ -430,6 +437,7 @@
     {
       "id": "heat_demand",
       "label": "Heat demand per cell",
+      "description": "Sums the heat demand of the buildings in each cell, today and under each renovation pathway.",
       "semantics": "aggregate",
       "model": {
         "rows": "buildings",
@@ -454,6 +462,7 @@
     {
       "id": "street_length",
       "label": "Street length per cell",
+      "description": "Splits the length of streets with heat demand among the cells their buildings stand in.",
       "semantics": "python",
       "model": {
         "script": "models/prepare_cells.py",
@@ -473,6 +482,7 @@
     {
       "id": "heat_pump_spf",
       "label": "Heat pump performance per cell",
+      "description": "How efficiently an air-source heat pump would run in each cell, weighted by the demand of its buildings.",
       "semantics": "aggregate",
       "model": {
         "rows": "buildings",
@@ -499,6 +509,7 @@
       "model": {
         "script": "models/prepare_cells.py",
         "entry": "locate_buildings",
+        "snapshot": "snapshots/locate_buildings.json",
         "outputs": {
           "building_blocks": {
             "kind": "table",
@@ -516,6 +527,7 @@
     {
       "id": "dh_expansion_year",
       "label": "Network year per cell",
+      "description": "The first year the heat plan brings district or local heating to most of each cell's demand.",
       "semantics": "python",
       "model": {
         "script": "models/prepare_cells.py",
@@ -535,6 +547,7 @@
     {
       "id": "heat_plan_network_share",
       "label": "Heat plan network share",
+      "description": "The share of heat the adopted heat plan expects district and local heating to supply in each target year.",
       "semantics": "aggregate",
       "model": {
         "rows": "blocks",
@@ -554,6 +567,7 @@
     {
       "id": "renovation",
       "label": "Renovation pathway",
+      "description": "Picks the heat demand of the renovation pathway the scenario assumes.",
       "semantics": "equation",
       "model": {
         "variables": {
@@ -566,6 +580,7 @@
     {
       "id": "heat_density",
       "label": "Linear heat density",
+      "description": "Heat demand per metre of street: whether a district heating network would pay off in the cell.",
       "semantics": "equation",
       "model": {
         "variables": {
@@ -595,6 +610,7 @@
     {
       "id": "replacement_hazard",
       "label": "Weibull replacement hazard",
+      "description": "How likely a heating system of each age is to be replaced in a year, from a Weibull lifetime.",
       "semantics": "equation",
       "model": {
         "variables": {
@@ -638,6 +654,7 @@
     {
       "id": "heat_turnover",
       "label": "Heating stock turnover",
+      "description": "Ages each cell's heating systems, replaces those that fail, and lets owners choose the new system by annual cost, with district heating only where the network has arrived.",
       "semantics": "xmile",
       "model": "models/heat-turnover.xmile",
       "inputs": {
@@ -678,6 +695,7 @@
     {
       "id": "target_check",
       "label": "Heat plan target check",
+      "description": "Compares the simulated district heating share with the share the heat plan targets.",
       "semantics": "equation",
       "model": {
         "variables": {
@@ -690,23 +708,46 @@
   ],
   "groups": [
     {
-      "id": "prepare_cells",
-      "label": "Cell data from buildings, census and heat plan",
-      "description": "Decodes the raw downloads into tables, joins the NRW buildings to the census cells and the heat plan blocks, and sums them per cell. Decoding, the joins and the street split are functions of models/prepare_cells.py run with Pyodide; the sums per cell are formulas. The per-cell results are committed as snapshots, so the decoding steps only run when you ask for them.",
-      "nodes": [
-        "read_buildings",
-        "read_projections",
-        "read_heat_lines",
-        "read_census",
-        "select_cells",
-        "heating_stock",
-        "heat_demand",
-        "street_length",
-        "heat_pump_spf",
-        "locate_buildings",
-        "dh_expansion_year",
-        "heat_plan_network_share"
-      ]
+      "id": "area",
+      "label": "Buildings and cells",
+      "description": "Who is in the model: Aachen's heated buildings and the census cells they stand in. Decoded from the NRW heat demand model and the census grid by models/prepare_cells.py in Pyodide.",
+      "nodes": ["read_buildings", "read_census", "select_cells"]
+    },
+    {
+      "id": "stock",
+      "label": "Today's heating",
+      "description": "What heats each cell today, how old the systems are, and how likely they are to be replaced as they age.",
+      "nodes": ["heating_stock", "initial_age", "replacement_hazard"]
+    },
+    {
+      "id": "demand",
+      "label": "Heat demand",
+      "description": "How much heat each cell needs, today and as buildings are renovated along the scenario's pathway.",
+      "nodes": ["read_projections", "heat_demand", "renovation"]
+    },
+    {
+      "id": "network",
+      "label": "District heating reach",
+      "description": "Where and when district heating arrives under the heat plan, and whether a street has enough demand to pay for the pipes.",
+      "nodes": ["read_heat_lines", "street_length", "heat_density", "locate_buildings", "dh_expansion_year"]
+    },
+    {
+      "id": "costs",
+      "label": "Running costs",
+      "description": "What a MWh of heat costs with each system in each cell: fuel, CO₂ price, the biogenic quota and the system's efficiency.",
+      "nodes": ["heat_pump_spf", "energy_cost"]
+    },
+    {
+      "id": "choices",
+      "label": "Replacement choices",
+      "description": "Systems wear out and owners pick their replacement by annual cost, 2022–2045: the stock-and-flow model at the heart of the pipeline.",
+      "nodes": ["heat_turnover"]
+    },
+    {
+      "id": "plan_check",
+      "label": "Heat plan check",
+      "description": "Does district heating reach the share the adopted heat plan targets?",
+      "nodes": ["heat_plan_network_share", "target_check"]
     }
   ],
   "views": {

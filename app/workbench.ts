@@ -15,6 +15,8 @@ export type Actions = {
   reveal: (selection: Selection) => void;
   toggle: (selection: Selection) => void;
   isExpanded: (selection: Selection) => boolean;
+  /** Shows or hides the datasets a node or group reads and makes, and selects it. */
+  unfold: (selection: Selection) => void;
   fullscreen: (selection: Selection | undefined) => void;
   canOpen: (nodeId: string) => boolean;
   open: (nodeId: string) => void;
@@ -24,7 +26,10 @@ export type Actions = {
   setView: (dataset: string, view: ViewName) => void;
 };
 
-/** The state of one model pane: what is selected, expanded in place, fullscreen, and which view each dataset shows. */
+/**
+ * The state of one model pane: what is selected, unfolded, expanded in place, fullscreen, and which
+ * view each dataset shows. It lives only as long as the page.
+ */
 export function createWorkbench(options: {
   result: () => RunResult | undefined;
   refresh: () => Promise<unknown>;
@@ -32,6 +37,7 @@ export function createWorkbench(options: {
   open: (nodeId: string) => void;
 }) {
   const [selection, setSelection] = createSignal<Selection>();
+  const [unfolded, setUnfolded] = createSignal<string[]>([]);
   const [expanded, setExpanded] = createSignal<string[]>([]);
   const [full, setFull] = createSignal<Selection>();
   const [views, setViews] = createSignal<Record<string, ViewName>>({});
@@ -65,6 +71,11 @@ export function createWorkbench(options: {
       setSelection(target);
     },
     isExpanded: (target) => expanded().includes(keyOf(target)),
+    unfold: (target) => {
+      const key = keyOf(target);
+      setUnfolded((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
+      setSelection(target);
+    },
     fullscreen: setFull,
     canOpen: options.canOpen,
     open: options.open,
@@ -77,24 +88,16 @@ export function createWorkbench(options: {
   };
   const reset = () => {
     setSelection(undefined);
+    setUnfolded([]);
     setExpanded([]);
     setFull(undefined);
     setViews({});
   };
-  return { selection, setSelection, expanded, setExpanded, full, setFull, views, setViews, reveal, focus, actions, reset };
+  return { selection, setSelection, unfolded, expanded, setExpanded, full, setFull, views, setViews, reveal, focus, actions, reset };
 }
 
 export type Workbench = ReturnType<typeof createWorkbench>;
 
 export function keyOf(selection: Selection): string {
   return `${selection.kind}:${selection.id}`;
-}
-
-/** `kind:id`; a bare id names a group, as in links made before datasets and nodes could expand. */
-export function parseKey(key: string): Selection | undefined {
-  const at = key.indexOf(':');
-  if (at < 0) return key ? { kind: 'group', id: key } : undefined;
-  const kind = key.slice(0, at);
-  const id = key.slice(at + 1);
-  return (kind === 'dataset' || kind === 'node' || kind === 'group') && id ? { kind, id } : undefined;
 }

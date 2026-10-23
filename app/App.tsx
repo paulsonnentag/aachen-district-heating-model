@@ -1,18 +1,17 @@
-import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, Show, untrack } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
 import type { RunResult } from '../lib/runtime/run';
 import { BASELINE, createRunCache } from '../lib/runtime/runs';
 import { createSemantics } from '../lib/semantics';
 import { Fullscreen } from './components/Fullscreen';
-import type { ViewName } from './components/ValueView';
 import { GraphView } from './graph/GraphView';
 import type { FocusTarget, StoryContext } from './story/elements';
 import { download } from './python/download';
 import { browserPythonHost } from './python/host';
 import { StoryPane } from './story/StoryPane';
 import { modelViews } from './views';
-import { createWorkbench, keyOf, parseKey, type Selection, type Workbench } from './workbench';
+import { createWorkbench, type Selection } from './workbench';
 
 const readText = async (path: string): Promise<string> => {
   const response = await fetch(`${import.meta.env.BASE_URL}${path}`);
@@ -53,7 +52,10 @@ export function App() {
       setOpen(nodeId);
     },
   });
-  syncWithUrl({ entries, pipelineIndex, setPipelineIndex, scenarioIndex, setScenarioIndex, open, setOpen, view, setView, workbench });
+  createEffect(() => {
+    const loaded = entries();
+    if (loaded) setView(defaultView(loaded[untrack(pipelineIndex)]));
+  });
   const [storyText] = createResource(() => entry()?.story, readText);
   const storyShown = () => view() !== 'model';
   const modelShown = () => view() !== 'story';
@@ -163,6 +165,7 @@ export function App() {
                         baseline={r().baseline}
                         selected={workbench.selection()}
                         reveal={workbench.reveal()}
+                        unfolded={workbench.unfolded()}
                         expanded={workbench.expanded()}
                         actions={workbench.actions}
                       />
@@ -218,71 +221,6 @@ function Summary(props: { runs: Runs; expectation?: string }) {
 }
 
 type Runs = { result: RunResult; baseline?: RunResult };
-
-/**
- * Mirrors the view in the URL so it can be linked, e.g.
- * `?pipeline=housing&scenario=no-quota&select=dataset:quota&expand=group:prepare,dataset:quota&full=dataset:quota&show=quota:table&view=split`.
- */
-function syncWithUrl(state: {
-  entries: () => PipelineEntry[] | undefined;
-  pipelineIndex: () => number;
-  setPipelineIndex: (i: number) => void;
-  scenarioIndex: () => number;
-  setScenarioIndex: (i: number) => void;
-  open: () => string | undefined;
-  setOpen: (nodeId: string | undefined) => void;
-  view: () => View;
-  setView: (view: View) => void;
-  workbench: Workbench;
-}) {
-  const { workbench } = state;
-  let restored = false;
-  createEffect(() => {
-    const entries = state.entries();
-    if (!entries || restored) return;
-    restored = true;
-    const params = new URLSearchParams(location.search);
-    const pipeline = Math.max(0, entries.findIndex((e) => e.dir === params.get('pipeline')));
-    state.setPipelineIndex(pipeline);
-    state.setScenarioIndex(entries[pipeline]!.scenarios.findIndex((s) => s.name === params.get('scenario')));
-    workbench.setSelection(parseKey(params.get('select') ?? ''));
-    state.setOpen(params.get('open') ?? undefined);
-    workbench.setExpanded(listParam(params, 'expand').flatMap((key) => {
-      const target = parseKey(key);
-      return target ? [keyOf(target)] : [];
-    }));
-    workbench.setFull(parseKey(params.get('full') ?? ''));
-    workbench.setViews(Object.fromEntries(listParam(params, 'show').flatMap((pair) => {
-      const at = pair.lastIndexOf(':');
-      return at > 0 ? [[pair.slice(0, at), pair.slice(at + 1) as ViewName]] : [];
-    })));
-    const view = params.get('view');
-    const hasStory = entries[pipeline]!.story !== undefined;
-    state.setView(hasStory && (view === 'story' || view === 'split' || view === 'model') ? view : defaultView(entries[pipeline]));
-  });
-  createEffect(() => {
-    const entry = state.entries()?.[state.pipelineIndex()];
-    if (!entry || !restored) return;
-    const params = new URLSearchParams({ pipeline: entry.dir });
-    const scenario = entry.scenarios[state.scenarioIndex()];
-    if (scenario) params.set('scenario', scenario.name);
-    const selection = workbench.selection();
-    if (selection) params.set('select', keyOf(selection));
-    const open = state.open();
-    if (open) params.set('open', open);
-    if (workbench.expanded().length > 0) params.set('expand', workbench.expanded().join(','));
-    const full = workbench.full();
-    if (full) params.set('full', keyOf(full));
-    const views = Object.entries(workbench.views());
-    if (views.length > 0) params.set('show', views.map(([name, view]) => `${name}:${view}`).join(','));
-    if (entry.story) params.set('view', state.view());
-    history.replaceState(null, '', `?${params}`);
-  });
-}
-
-function listParam(params: URLSearchParams, name: string): string[] {
-  return (params.get(name) ?? '').split(',').filter(Boolean);
-}
 
 function defaultView(entry: PipelineEntry | undefined): View {
   return entry?.story ? 'story' : 'model';
