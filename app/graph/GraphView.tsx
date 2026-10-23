@@ -492,6 +492,15 @@ function buildGraph(
     for (const node of info.nodes) groupOfNode.set(node.node.id, id);
     for (const name of info.internal) groupOfDataset.set(name, id);
   }
+  const producerOf = new Map(result.pipeline.nodes.flatMap((node) => Object.values(node.outputs).map((name) => [name, node.id] as const)));
+  /** An expanded group frames the datasets its steps make, even those other groups read too. */
+  const containerOfDataset = (name: string): string | undefined => {
+    const internal = groupOfDataset.get(name);
+    if (internal) return internal;
+    const producer = producerOf.get(name);
+    const maker = producer ? groupOfNode.get(producer) : undefined;
+    return maker && isExpanded('group', maker) ? maker : undefined;
+  };
   const containers = new Map<string, LayoutItem[]>([['', []]]);
   const containerOf = new Map<string, string>();
   const add = (container: string, item: LayoutItem) => {
@@ -514,7 +523,7 @@ function buildGraph(
   const datasetItem = (name: string): string | undefined => {
     const reasons = shown.get(name);
     if (!reasons) return undefined;
-    const group = groupOfDataset.get(name);
+    const group = containerOfDataset(name);
     if (group && !isExpanded('group', group)) return undefined;
     const size = isExpanded('dataset', name) ? EXPANDED_DATASET : { width: DATASET_WIDTH, height: datasetHeight(name) };
     const near = reasons.map((key) => reasonItem(key, group ?? ''));
@@ -530,7 +539,6 @@ function buildGraph(
   const connect = (from: string | undefined, to: string | undefined) => {
     if (from && to && from !== to) drawn.set(`${from}>${to}`, { from, to });
   };
-  const producerOf = new Map(result.pipeline.nodes.flatMap((node) => Object.values(node.outputs).map((name) => [name, node.id] as const)));
   for (const node of result.pipeline.nodes) nodeItem(node.id);
   for (const node of result.pipeline.nodes) {
     const id = nodeItem(node.id);
