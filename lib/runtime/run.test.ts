@@ -111,7 +111,7 @@ describe('heat transition pipeline', () => {
   });
 
   it('leaves the decoding steps idle while the snapshots downstream cover the run', () => {
-    for (const id of ['read_buildings', 'read_census', 'read_heat_plan', 'select_cells', 'locate_buildings']) {
+    for (const id of ['read_buildings', 'read_census', 'read_projections', 'select_cells', 'locate_buildings']) {
       expect(baseline.nodes.get(id)!.status).toBe('idle');
     }
     const stock = baseline.nodes.get('heating_stock')!;
@@ -119,6 +119,8 @@ describe('heat transition pipeline', () => {
     expect(stock.cache?.origin).toBe('snapshot');
     expect(stock.compute).toBeTypeOf('function');
     expect(baseline.datasets.get('buildings')!.table).toBeUndefined();
+    expect(baseline.datasets.get('heat_plan_blocks')!.table).toBeUndefined();
+    expect(baseline.datasets.get('heat_plan_blocks')!.compute).toBeTypeOf('function');
   });
 
   it('rejects a node that is in two groups', async () => {

@@ -9,6 +9,8 @@ export const PipelineSchema = z.lazy(() =>
     datasets: z.record(z.string(), DatasetSchema),
     nodes: z.array(NodeSchema),
     groups: z.array(GroupSchema).default([]),
+    /** The view each dataset shows first, e.g. `{ "street_length": "map" }`; others start with their first view. */
+    views: z.record(z.string(), z.string()).default({}),
   }),
 );
 
@@ -64,10 +66,24 @@ const RemoteFileDatasetSchema = z.lazy(() =>
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
     size: z.number().int().positive(),
     format: z.string(),
+    /** Read the file into a table, when something needs it, instead of handing nodes the file. */
+    decode: DecodeSchema.optional(),
     source: ProvenanceSchema,
     description: z.string().optional(),
   }),
 );
+
+export const ColumnSpecSchema = z.object({
+  unit: z.string().optional(),
+  crs: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const DecodeSchema = z.object({
+  kind: z.literal('table'),
+  description: z.string().optional(),
+  columns: z.record(z.string(), ColumnSpecSchema).default({}),
+});
 
 export type NestedValue = number | { [key: string]: NestedValue };
 
@@ -106,6 +122,7 @@ export type PipelineNode = z.infer<typeof NodeSchema>;
 export type PipelineGroup = z.infer<typeof GroupSchema>;
 export type Dataset = z.infer<typeof DatasetSchema>;
 export type RemoteFileDataset = z.infer<typeof RemoteFileDatasetSchema>;
+export type Decode = z.infer<typeof DecodeSchema>;
 export type Provenance = z.infer<typeof ProvenanceSchema>;
 export type Source = z.infer<typeof SourceSchema>;
 export type Scenario = z.infer<typeof ScenarioSchema>;

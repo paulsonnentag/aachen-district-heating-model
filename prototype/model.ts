@@ -1,6 +1,7 @@
 import { loadIndex, type PipelineEntry } from '../lib/runtime/load';
 import { createRunCache } from '../lib/runtime/runs';
 import { createSemantics } from '../lib/semantics';
+import { download } from '../app/python/download';
 import { browserPythonHost } from '../app/python/host';
 
 /** The pipelines are served from the root, exactly as for the workbench app. */
@@ -10,7 +11,7 @@ export const readText = async (path: string): Promise<string> => {
   return response.text();
 };
 
-export const runOf = createRunCache(readText, createSemantics(browserPythonHost()));
+export const runOf = createRunCache(readText, createSemantics(browserPythonHost()), download);
 
 let index: Promise<PipelineEntry[]> | undefined;
 

@@ -1,5 +1,5 @@
 import type { PyodideAPI } from 'pyodide';
-import type { RemoteFile } from '../../runtime/datasets';
+import type { FetchFile, RemoteFile } from '../../runtime/datasets';
 
 export const PYODIDE_VERSION = '314.0.7';
 export const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
@@ -16,8 +16,6 @@ export type PythonJob = {
 };
 
 export type PythonRun = { outputs: Record<string, unknown>; log: string[] };
-
-export type FetchFile = (file: RemoteFile, onLog: (line: string) => void) => Promise<Uint8Array>;
 
 /** The script runs in a namespace of its own, so its `if __name__ == "__main__"` block stays inactive. */
 const RUNNER = `

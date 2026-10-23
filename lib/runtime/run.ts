@@ -1,5 +1,6 @@
-import { isRemoteFile, type Dataset, type Issue, type Pipeline, type PipelineNode } from './pipeline';
-import { loadDataset, type ReadText, type RemoteFile } from './datasets';
+import { isRemoteFile, type Dataset, type Decode, type Issue, type Pipeline, type PipelineNode } from './pipeline';
+import { loadDataset, type FetchFile, type ReadText, type RemoteFile } from './datasets';
+import { decodedTable, decodeFile } from './decode';
 import { hashJson } from './hash';
 import type { Table } from './table';
 import type { Tensor } from './tensor';
@@ -24,6 +25,8 @@ export type DatasetResult = {
   /** Identifies the value by its lineage, so kept results downstream can be checked without computing it. */
   key?: string;
   error?: string;
+  /** Computes the value if it is not there yet: runs its node, or downloads and decodes its file. */
+  compute?: (onLog: (line: string) => void) => Promise<void>;
 };
 
 export type NodeResult = {
@@ -43,10 +46,12 @@ export type NodeResult = {
   recompute?: (onLog: (line: string) => void) => Promise<NodeOutput>;
 };
 
+/** `fetchFile` lets the run decode downloads itself; without it, only nodes read them. */
 export async function runPipeline(
   pipeline: Pipeline,
   semantics: Record<string, Semantics>,
   readText: ReadText,
+  fetchFile?: FetchFile,
 ): Promise<RunResult> {
   const prepared = await prepareNodes(pipeline, semantics, readText);
   const { issues, order } = validateGraph(pipeline, prepared);
@@ -66,19 +71,21 @@ export async function runPipeline(
     return { pipeline, issues, datasets, nodes };
   }
 
-  await evaluate(order, prepared as Map<string, PreparedNode>, datasets, nodes);
+  await evaluate(order, prepared as Map<string, PreparedNode>, datasets, nodes, fetchFile);
   return { pipeline, issues, datasets, nodes };
 }
 
 /**
  * Nodes that can look up a kept result use it without their inputs; the rest run in order.
- * A node with a lookup but no kept result runs only if something downstream has to run.
+ * A node with a lookup but no kept result runs only if something downstream has to run, and
+ * a download that decodes into a table is only fetched when a node that has to run reads it.
  */
 async function evaluate(
   order: string[],
   prepared: Map<string, PreparedNode>,
   datasets: Map<string, DatasetResult>,
   nodes: Map<string, NodeResult>,
+  fetchFile: FetchFile | undefined,
 ): Promise<void> {
   const producerOf = new Map<string, string>();
   const consumersOf = new Map<string, string[]>();
@@ -105,10 +112,24 @@ async function evaluate(
   }
 
   const execute = (id: string, context: Omit<RunContext, 'key'>) => executeNode(nodes.get(id)!, prepared.get(id)!, datasets, context);
+  const decode = async (name: string, onLog: (line: string) => void) => {
+    const dataset = datasets.get(name)!;
+    const spec = decodeOf(dataset);
+    if (!spec || dataset.table) return;
+    try {
+      if (!fetchFile) throw new Error('This run cannot download files');
+      dataset.table = await decodeFile(dataset.file!, spec, dataset.key!, fetchFile, onLog);
+      dataset.error = undefined;
+    } catch (error) {
+      dataset.error = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  };
   const ensureInputs = async (id: string, onLog: (line: string) => void) => {
     for (const name of Object.values(nodes.get(id)!.node.inputs)) {
       const producer = producerOf.get(name);
       if (producer) await ensure(producer, onLog);
+      else await decode(name, onLog);
     }
   };
   const ensure = async (id: string, onLog: (line: string) => void): Promise<void> => {
@@ -131,9 +152,20 @@ async function evaluate(
     };
     const output = kept.get(id);
     if (output) applyOutput(result, output, datasets);
-    else if (mustRun.has(id)) await execute(id, { fresh: false, onLog: () => {} });
-    else result.status = 'idle';
+    else if (mustRun.has(id)) {
+      for (const name of Object.values(result.node.inputs)) if (!producerOf.has(name)) await decode(name, () => {}).catch(() => undefined);
+      await execute(id, { fresh: false, onLog: () => {} });
+    } else result.status = 'idle';
   }
+  for (const [name, dataset] of datasets) {
+    const producer = producerOf.get(name);
+    if (producer) dataset.compute = (onLog) => ensure(producer, onLog);
+    else if (decodeOf(dataset)) dataset.compute = (onLog) => decode(name, onLog);
+  }
+}
+
+function decodeOf(dataset: DatasetResult): Decode | undefined {
+  return 'catalog' in dataset.producer && isRemoteFile(dataset.producer.catalog) ? dataset.producer.catalog.decode : undefined;
 }
 
 /** A node's key hashes its fingerprint with its inputs' keys; its outputs are keyed by the node's key and port. */
@@ -172,9 +204,10 @@ async function loadCatalog(pipeline: Pipeline, readText: ReadText): Promise<Map<
   for (const [name, dataset] of Object.entries(pipeline.datasets)) {
     const result: DatasetResult = { name, producer: { catalog: dataset } };
     if (isRemoteFile(dataset)) {
-      const { url, sha256, size, format } = dataset;
+      const { url, sha256, size, format, decode } = dataset;
       result.file = { url, sha256, size, format };
-      result.key = `sha256:${sha256}`;
+      result.key = decode ? await hashJson({ sha256, decode }) : `sha256:${sha256}`;
+      if (decode) result.table = decodedTable(result.key);
       datasets.set(name, result);
       continue;
     }
@@ -216,7 +249,7 @@ function gatherInputs(node: PipelineNode, datasets: Map<string, DatasetResult>):
     const dataset = datasets.get(name);
     if (dataset?.tensor) inputs.tensors[port] = dataset.tensor;
     else if (dataset?.table) inputs.tables[port] = dataset.table;
-    else if (dataset?.file) inputs.files[port] = dataset.file;
+    else if (dataset?.file && !decodeOf(dataset)) inputs.files[port] = dataset.file;
     else return undefined;
   }
   return inputs;

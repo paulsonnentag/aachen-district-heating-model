@@ -1,7 +1,7 @@
 {
   "id": "aachen-heat-transition",
   "title": "Aachen heat transition",
-  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data is computed from the raw public downloads by a group of Python steps.",
+  "description": "Heating system turnover in Aachen's 3,660 inhabited Zensus 100 m cells, 2022–2045: Weibull replacement, logit choice of the new system, district heating gated by the adopted heat plan. Cell data is computed from the raw public downloads by a group of steps: Python decodes the downloads, simple formulas sum them per cell.",
   "sources": {
     "ksg": {
       "title": "Bundes-Klimaschutzgesetz § 3: national climate targets",
@@ -82,7 +82,11 @@
       "sha256": "82077d5447f0b22ad682ea16892189405023166bd8323c06dfa7e5982764a779",
       "size": 23606735,
       "format": "GeoJSON",
-      "description": "Building blocks of the adopted heat plan with the heat supplied by each carrier in the target scenario for 2022, 2030, 2035, 2040 and 2045.",
+      "decode": {
+        "kind": "table",
+        "columns": { "geometry": { "crs": "EPSG:4326", "description": "Block outline as published" } }
+      },
+      "description": "Building blocks of the adopted heat plan with the heat supplied by each carrier in the target scenario for 2022, 2030, 2035, 2040 and 2045: q_<carrier>_<yy>, where fw is district and nw local heating.",
       "source": { "ref": "aachen_heat_plan", "locator": "Layer app:kwp_baubloecke_join, properties q_fw_* (district heating) and q_nw_* (local heating)" }
     },
     "renovation_pathway": {
@@ -90,6 +94,11 @@
       "dims": ["renovation"],
       "unit": "dmnl",
       "source": { "assumption": "Baseline: the NRW model's moderate renovation pathway" }
+    },
+    "kwh_per_mwh": {
+      "value": 1000,
+      "unit": "kWh/MWh",
+      "source": { "assumption": "Unit conversion: one MWh is 1000 kWh" }
     },
     "boiler_stock_2025": {
       "file": "data/boiler_stock_2025.csv",
@@ -317,8 +326,11 @@
         "outputs": {
           "building_projections": {
             "kind": "table",
-            "description": "Projected space heating and hot water demand per building in kWh/year, one column per pathway and year (layers WBM-NRW-moderat/erhoeht/hoch, columns RW_WW_<m|e|h>_<yy>).",
-            "columns": { "id": { "description": "Fest_ID" } }
+            "description": "Space heating and hot water demand per heated building in kWh/year, one column <pathway>_<year> per renovation pathway and year: 2022 is the base model, later years the pathway's projection (layers WBM-NRW-moderat/erhoeht/hoch, columns RW_WW_<m|e|h>_<yy>). Buildings without a projection keep their 2022 demand.",
+            "columns": {
+              "id": { "description": "Fest_ID" },
+              "cell": { "description": "Raster_ID: the 100 m census cell the building stands in" }
+            }
           }
         }
       },
@@ -368,25 +380,6 @@
       "outputs": { "census_cells": "census_cells" }
     },
     {
-      "id": "read_heat_plan",
-      "label": "Heat plan blocks",
-      "semantics": "python",
-      "description": "Reads the heat plan's building blocks from the WFS download, keeping every property.",
-      "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "read_heat_plan",
-        "outputs": {
-          "heat_plan_blocks": {
-            "kind": "table",
-            "description": "Layer app:kwp_baubloecke_join. q_<carrier>_<yy> is the heat supplied by each carrier in the target scenario (fw = district, nw = local heating).",
-            "columns": { "geometry": { "crs": "EPSG:4326", "description": "Block outline as published" } }
-          }
-        }
-      },
-      "inputs": { "heat_plan": "heat_plan_blocks" },
-      "outputs": { "heat_plan_blocks": "heat_plan_table" }
-    },
-    {
       "id": "select_cells",
       "label": "Cells of the model",
       "semantics": "python",
@@ -406,39 +399,56 @@
     {
       "id": "heating_stock",
       "label": "Heating stock per cell",
-      "semantics": "python",
+      "semantics": "aggregate",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "heating_stock",
+        "rows": "census",
+        "by": "cell",
+        "over": "cells.cell",
         "snapshot": "snapshots/heating_stock.json",
         "outputs": {
           "heating_stock": {
-            "dims": ["cell", "tech"],
+            "value": "sum({tech})",
+            "for": {
+              "tech": {
+                "gas": "Gas",
+                "oil": "Heizoel",
+                "hp": "Solar_Geothermie_Waermepumpen",
+                "dh": "Fernwaerme",
+                "biomass": "Holz_Holzpellets + Biomasse_Biogas",
+                "electric": "Strom",
+                "other": "Kohle + kein_Energietraeger"
+              }
+            },
             "unit": "buildings",
-            "description": "Census buildings per cell and heating energy carrier, mapped to seven technologies (biomass = wood/pellets + biogas; other = coal + none). Cells without heated residential buildings in the NRW model are dropped."
+            "description": "Census buildings per cell and heating energy carrier, mapped to seven technologies. Category counts and cell totals are perturbed independently by the census, so the model uses the categories."
           }
         }
       },
-      "inputs": { "census_cells": "census_cells", "cells": "cells" },
+      "inputs": { "census": "census_cells", "cells": "cells" },
       "outputs": { "heating_stock": "heating_stock_2022" }
     },
     {
       "id": "heat_demand",
       "label": "Heat demand per cell",
-      "semantics": "python",
+      "semantics": "aggregate",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "heat_demand",
+        "rows": "buildings",
+        "by": "cell",
+        "over": "cells.cell",
         "snapshot": "snapshots/heat_demand.json",
         "outputs": {
           "heat_demand": {
-            "dims": ["cell", "renovation", "year"],
+            "value": "sum({renovation}_{year}) / kwh_per_mwh",
+            "for": {
+              "renovation": ["moderat", "erhoeht", "hoch"],
+              "year": ["2022", "2025", "2030", "2035", "2040", "2045"]
+            },
             "unit": "MWh/year",
             "description": "Space heating and hot water demand of every heated building, summed per cell (building Raster_ID = census cell id). 2022 is the base model; 2025–2045 are the model's projections for each renovation pathway."
           }
         }
       },
-      "inputs": { "buildings": "buildings", "building_projections": "building_projections", "cells": "cells" },
+      "inputs": { "buildings": "building_projections", "cells": "cells", "kwh_per_mwh": "kwh_per_mwh" },
       "outputs": { "heat_demand": "heat_demand_by_pathway" }
     },
     {
@@ -463,14 +473,16 @@
     {
       "id": "heat_pump_spf",
       "label": "Heat pump performance per cell",
-      "semantics": "python",
+      "semantics": "aggregate",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "heat_pump_spf",
+        "rows": "buildings",
+        "where": "residential and spf_air > 0 and demand_kwh > 0",
+        "by": "cell",
+        "over": "cells.cell",
         "snapshot": "snapshots/heat_pump_spf.json",
         "outputs": {
           "heat_pump_spf": {
-            "dims": ["cell"],
+            "value": "sum(spf_air * demand_kwh) / sum(demand_kwh)",
             "unit": "dmnl",
             "description": "Demand-weighted mean of the model's air-source heat pump seasonal performance factor (JAZ_Luft) over the residential buildings of each cell."
           }
@@ -498,7 +510,7 @@
           }
         }
       },
-      "inputs": { "buildings": "buildings", "heat_plan_blocks": "heat_plan_table" },
+      "inputs": { "buildings": "buildings", "heat_plan_blocks": "heat_plan_blocks" },
       "outputs": { "building_blocks": "building_blocks" }
     },
     {
@@ -523,20 +535,20 @@
     {
       "id": "heat_plan_network_share",
       "label": "Heat plan network share",
-      "semantics": "python",
+      "semantics": "aggregate",
       "model": {
-        "script": "models/prepare_cells.py",
-        "entry": "heat_plan_network_share",
+        "rows": "blocks",
         "snapshot": "snapshots/heat_plan_network_share.json",
         "outputs": {
           "heat_plan_network_share": {
-            "dims": ["year"],
+            "value": "sum(total(q_fw_{year}, q_nw_{year})) / sum(total(q_bhkw_{year}, q_biom_{year}, q_el_{year}, q_fw_{year}, q_gas_{year}, q_gwp_{year}, q_h2_{year}, q_lng_{year}, q_lwp_{year}, q_nw_{year}, q_oel_{year}, q_stc_{year}))",
+            "for": { "year": { "2022": "22", "2030": "30", "2035": "35", "2040": "40", "2045": "45" } },
             "unit": "dmnl",
-            "description": "District plus local heating supply divided by total supply over all heat plan blocks, per target year."
+            "description": "District plus local heating supply divided by the supply of all twelve carriers, over all heat plan blocks, per target year. Blocks without a value for a carrier count as zero."
           }
         }
       },
-      "inputs": { "heat_plan_blocks": "heat_plan_table" },
+      "inputs": { "blocks": "heat_plan_blocks" },
       "outputs": { "heat_plan_network_share": "heat_plan_network_share" }
     },
     {
@@ -680,13 +692,12 @@
     {
       "id": "prepare_cells",
       "label": "Cell data from buildings, census and heat plan",
-      "description": "Decodes the raw downloads into tables, joins the NRW buildings to the census cells and the heat plan blocks, and sums them per cell. Every step is a function of models/prepare_cells.py run with Pyodide; the per-cell results are committed as snapshots, so the decoding steps only run when you ask for them.",
+      "description": "Decodes the raw downloads into tables, joins the NRW buildings to the census cells and the heat plan blocks, and sums them per cell. Decoding, the joins and the street split are functions of models/prepare_cells.py run with Pyodide; the sums per cell are formulas. The per-cell results are committed as snapshots, so the decoding steps only run when you ask for them.",
       "nodes": [
         "read_buildings",
         "read_projections",
         "read_heat_lines",
         "read_census",
-        "read_heat_plan",
         "select_cells",
         "heating_stock",
         "heat_demand",
@@ -697,5 +708,11 @@
         "heat_plan_network_share"
       ]
     }
-  ]
+  ],
+  "views": {
+    "street_length": "map",
+    "heat_pump_spf": "map",
+    "dh_expansion_year": "map",
+    "heat_plan_blocks": "map"
+  }
 }

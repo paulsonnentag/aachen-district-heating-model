@@ -1,4 +1,4 @@
-import { parseResult, type PythonResult, type ResultStore } from '../../lib/semantics/python/cache';
+import { parseResult, type KeptResult, type ResultStore } from '../../lib/semantics/kept';
 import type { PythonHost } from '../../lib/semantics/python';
 import { PYODIDE_VERSION, type PythonJob, type PythonRun } from '../../lib/semantics/python/pyodide';
 import type { WorkerReply } from './worker';
@@ -62,9 +62,9 @@ function indexedDbStore(): ResultStore {
       call<string | undefined>('readonly', (s) => s.get(key))
         .then((text) => (text ? parseResult(text) : undefined))
         .catch(() => undefined),
-    put: (result: PythonResult) =>
+    put: (result: KeptResult) =>
       call('readwrite', (s) => s.put(JSON.stringify(result), result.key))
         .then(() => undefined)
-        .catch((error) => console.warn('Could not keep the Python result in IndexedDB', error)),
+        .catch((error) => console.warn('Could not keep the result in IndexedDB', error)),
   };
 }

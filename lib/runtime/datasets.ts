@@ -8,6 +8,9 @@ export type ReadText = (path: string) => Promise<string>;
 /** A raw download as nodes see it: fetched only when a node actually runs on it. */
 export type RemoteFile = Pick<RemoteFileDataset, 'url' | 'sha256' | 'size' | 'format'>;
 
+/** Gets a download's bytes, checked against its pinned hash. */
+export type FetchFile = (file: RemoteFile, onLog: (line: string) => void) => Promise<Uint8Array>;
+
 /** One coordinate per dimension, then the value. */
 export type Row = { at: string[]; value: number };
 

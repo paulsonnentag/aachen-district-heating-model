@@ -3,14 +3,14 @@
 Each step below is a node of the pipeline: it gets one keyword argument per input and returns a
 dict with one entry per output. Raw downloads arrive as file paths and tables as dicts of columns.
 The read_* steps decode the downloads into tables without changing their content; the later steps
-join them and sum them per Zensus 2022 100 m grid cell, named like the NRW heat demand model's
+join them and split them per Zensus 2022 100 m grid cell, named like the NRW heat demand model's
 Raster_ID (e.g. 100mN30733E40528), and return one row per cell: its coordinates, then the value.
+Plain sums per cell are formulas in the pipeline rather than code here.
 Shapefiles are streamed straight out of the zip and only the columns used here are decoded.
 """
 
 import csv
 import io
-import json
 import struct
 import zipfile
 from collections import defaultdict
@@ -21,17 +21,6 @@ RENOVATION_PATHWAYS = {"moderat": "m", "erhoeht": "e", "hoch": "h"}
 PROJECTION_YEARS = [2025, 2030, 2035, 2040, 2045]
 HEAT_PLAN_YEARS = [2022, 2030, 2035, 2040, 2045]
 NOT_PLANNED = 2100
-
-# Zensus energy carrier columns grouped into the model's technologies.
-TECHS = {
-    "gas": ["Gas"],
-    "oil": ["Heizoel"],
-    "hp": ["Solar_Geothermie_Waermepumpen"],
-    "dh": ["Fernwaerme"],
-    "biomass": ["Holz_Holzpellets", "Biomasse_Biogas"],
-    "electric": ["Strom"],
-    "other": ["Kohle", "kein_Energietraeger"],
-}
 CENSUS_MEMBER = "Zensus2022_Gebaeude_nach_Energietraeger_der_Heizung_100m-Gitter.csv"
 BUILDINGS = "WBM-NRW_05334002_Aachen"
 HEAT_LINES = "WBM-NRW-Waermelinien_05334002_Aachen"
@@ -59,21 +48,30 @@ def read_buildings(nrw: str) -> dict:
 
 
 def read_projections(nrw: str, buildings: dict) -> dict:
-    """Projected demand (kWh/year) of each heated building, one column per renovation pathway and year."""
-    heated = set(buildings["id"])
-    projected = {}
+    """Demand (kWh/year) of each heated building per renovation pathway and year: the base model's
+    value for 2022, then the pathway's projection. A building without a complete projection in a
+    pathway keeps its 2022 demand throughout that pathway."""
+    projected = defaultdict(dict)
     with zipfile.ZipFile(nrw) as archive:
         for pathway, letter in RENOVATION_PATHWAYS.items():
-            columns = {year: f"RW_WW_{letter}_{year % 100}" for year in PROJECTION_YEARS}
+            columns = [f"RW_WW_{letter}_{year % 100}" for year in PROJECTION_YEARS]
             with open_member(archive, f"WBM-NRW-{pathway}_05334002_Aachen.dbf") as dbf:
-                for record in dbf_records(dbf, ["Fest_ID", *columns.values()]):
-                    if record["Fest_ID"] not in heated:
-                        continue
-                    row = projected.setdefault(record["Fest_ID"], {"id": record["Fest_ID"]})
-                    for year, column in columns.items():
-                        row[f"{pathway}_{year}"] = record[column]
-    print(f"projections for {len(projected)} of {len(heated)} heated buildings")
-    return {"building_projections": table_of(list(projected.values()))}
+                for record in dbf_records(dbf, ["Fest_ID", *columns]):
+                    projected[record["Fest_ID"]][pathway] = [record[c] for c in columns]
+    rows = []
+    kept = defaultdict(int)
+    for b in rows_of(buildings):
+        row = {"id": b["id"], "cell": b["cell"]}
+        for pathway in RENOVATION_PATHWAYS:
+            values = projected[b["id"]].get(pathway)
+            if values is None or None in values:
+                kept[pathway] += 1
+                values = [b["demand_kwh"]] * len(PROJECTION_YEARS)
+            row[f"{pathway}_2022"] = b["demand_kwh"]
+            row.update({f"{pathway}_{year}": value for year, value in zip(PROJECTION_YEARS, values)})
+        rows.append(row)
+    print(f"{len(rows)} heated buildings; without projection, keeping their 2022 demand: {dict(kept)}")
+    return {"building_projections": table_of(rows)}
 
 
 def read_heat_lines(nrw: str) -> dict:
@@ -104,15 +102,6 @@ def read_census(census: str, buildings: dict) -> dict:
     return {"census_cells": table_of(rows)}
 
 
-def read_heat_plan(heat_plan: str) -> dict:
-    """Building blocks of the adopted heat plan, with every published property and the block outline."""
-    with open(heat_plan, encoding="utf-8") as f:
-        features = json.load(f)["features"]
-    blocks = [{"id": feature.get("id"), **feature["properties"], "geometry": feature["geometry"]} for feature in features]
-    print(f"{len(blocks)} heat plan blocks")
-    return {"heat_plan_blocks": table_of(blocks)}
-
-
 def select_cells(census_cells: dict, buildings: dict) -> dict:
     """The model's cells: those with census counts and at least one heated residential building."""
     heated = defaultdict(int)
@@ -124,42 +113,6 @@ def select_cells(census_cells: dict, buildings: dict) -> dict:
     cells = sorted(set(census_cells["cell"]) & residential.keys())
     print(f"{len(cells)} cells have both census counts and heated residential buildings")
     return {"cells": table_of([{"cell": c, "heated_buildings": heated[c], "residential_buildings": residential[c]} for c in cells])}
-
-
-def heating_stock(census_cells: dict, cells: dict) -> dict:
-    """Buildings per cell and technology as published. Category counts and the cell total are
-    perturbed independently, so their sums differ slightly; the model uses the categories."""
-    census = {row["cell"]: row for row in rows_of(census_cells)}
-    rows = [(cell, tech, sum(census[cell][c] for c in group)) for cell in cells["cell"] for tech, group in TECHS.items()]
-    published_total = sum(census[cell]["Insgesamt_Energietraeger"] for cell in cells["cell"])
-    print(f"heating stock: {sum(r[2] for r in rows)} buildings by category, {published_total} by published cell totals")
-    return {"heating_stock": rows}
-
-
-def heat_demand(buildings: dict, building_projections: dict, cells: dict) -> dict:
-    """Space heating and hot water demand of all heated buildings per cell (MWh/year) for each
-    renovation pathway: today's model value for 2022, then the pathway's projections."""
-    wanted = set(cells["cell"])
-    in_cells = [b for b in rows_of(buildings) if b["cell"] in wanted]
-    projections = {row["id"]: row for row in rows_of(building_projections)}
-    years = [2022, *PROJECTION_YEARS]
-    rows = []
-    for pathway in RENOVATION_PATHWAYS:
-        demand = defaultdict(float)
-        missing = 0
-        for b in in_cells:
-            demand[(b["cell"], 2022)] += b["demand_kwh"] / 1000
-            row = projections.get(b["id"])
-            projected = [row[f"{pathway}_{year}"] for year in PROJECTION_YEARS] if row else [None]
-            if None in projected:
-                missing += 1
-                projected = [b["demand_kwh"]] * len(PROJECTION_YEARS)
-            for year, value in zip(PROJECTION_YEARS, projected):
-                demand[(b["cell"], year)] += value / 1000
-        print(f"heat demand ({pathway}): {sum(demand[(c, 2022)] for c in wanted) / 1000:.0f} GWh in 2022, "
-              f"{sum(demand[(c, 2045)] for c in wanted) / 1000:.0f} GWh in 2045; {missing} buildings without projection")
-        rows += [(cell, pathway, year, round(demand[(cell, year)], 3)) for cell in cells["cell"] for year in years]
-    return {"heat_demand": rows}
 
 
 def street_length(buildings: dict, heat_lines: dict, cells: dict) -> dict:
@@ -178,21 +131,6 @@ def street_length(buildings: dict, heat_lines: dict, cells: dict) -> dict:
     zero = [c for c in cells["cell"] if length[c] <= 0]
     print(f"street length: {sum(length[c] for c in cells['cell']) / 1000:.0f} km over the cells; {len(zero)} cells without a heat line")
     return {"street_length": [(c, round(max(length[c], 1.0), 2)) for c in cells["cell"]]}
-
-
-def heat_pump_spf(buildings: dict, cells: dict) -> dict:
-    """Demand-weighted mean seasonal performance factor of an air-source heat pump in the
-    cell's residential buildings, as estimated per building by the NRW model."""
-    weighted = defaultdict(float)
-    weights = defaultdict(float)
-    for b in rows_of(buildings):
-        if b["residential"] and b["spf_air"] and b["demand_kwh"] > 0:
-            weighted[b["cell"]] += b["spf_air"] * b["demand_kwh"]
-            weights[b["cell"]] += b["demand_kwh"]
-    missing = [c for c in cells["cell"] if weights[c] <= 0]
-    if missing:
-        raise ValueError(f"{len(missing)} cells have no residential building with a heat pump estimate")
-    return {"heat_pump_spf": [(c, round(weighted[c] / weights[c], 4)) for c in cells["cell"]]}
 
 
 def locate_buildings(buildings: dict, heat_plan_blocks: dict) -> dict:
@@ -229,18 +167,6 @@ def dh_expansion_year(buildings: dict, building_blocks: dict, cells: dict) -> di
         counts[year] += 1
     print(f"cells by first network year {dict(sorted(counts.items()))}")
     return {"dh_expansion_year": rows}
-
-
-def heat_plan_network_share(heat_plan_blocks: dict) -> dict:
-    """The plan's city-wide network heat share per year, as a benchmark for the model."""
-    blocks = rows_of(heat_plan_blocks)
-    rows = []
-    for year in HEAT_PLAN_YEARS:
-        network = sum(network_heat(b, year) for b in blocks)
-        total = sum(sum(v or 0 for k, v in b.items() if k.startswith("q_") and k.endswith(f"_{year % 100}")) for b in blocks)
-        rows.append((year, round(network / total, 5)))
-    print(f"heat plan network heat share: {rows}")
-    return {"heat_plan_network_share": rows}
 
 
 def rows_of(table: dict[str, list]) -> list[dict]:

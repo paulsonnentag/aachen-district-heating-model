@@ -8,6 +8,7 @@ import { DetailPanel, type Compute } from './components/DetailPanel';
 import { GraphView, type Selection } from './graph/GraphView';
 import { groupOfDataset, groupOfNode, groupsOf } from './graph/groups';
 import type { FocusTarget, StoryContext } from './story/elements';
+import { download } from './python/download';
 import { browserPythonHost } from './python/host';
 import { StoryPane } from './story/StoryPane';
 import { modelViews } from './views';
@@ -18,7 +19,7 @@ const readText = async (path: string): Promise<string> => {
   return response.text();
 };
 
-const runOf = createRunCache(readText, createSemantics(browserPythonHost()));
+const runOf = createRunCache(readText, createSemantics(browserPythonHost()), download);
 
 /** Which panes are visible: the story alone, story and model side by side, or the model alone. */
 type View = 'story' | 'split' | 'model';

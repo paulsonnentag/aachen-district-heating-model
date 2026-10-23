@@ -1,4 +1,4 @@
-import type { ReadText } from './datasets';
+import type { FetchFile, ReadText } from './datasets';
 import { resolvePipeline, scopedReader, type PipelineEntry } from './load';
 import { runPipeline, type RunResult } from './run';
 import type { Semantics } from '../semantics/types';
@@ -11,7 +11,7 @@ export type RunOf = (entry: PipelineEntry, scenario: string) => Promise<RunResul
 export type RunCache = RunOf & { clear: () => void };
 
 /** Runs each pipeline once per scenario name (or `BASELINE`) and hands out the same result afterwards. */
-export function createRunCache(readText: ReadText, semantics: Record<string, Semantics>): RunCache {
+export function createRunCache(readText: ReadText, semantics: Record<string, Semantics>, fetchFile?: FetchFile): RunCache {
   const cache = new Map<string, Promise<RunResult>>();
   const runOf: RunOf = (entry, scenario) => {
     const key = `${entry.path}#${scenario}`;
@@ -30,6 +30,6 @@ export function createRunCache(readText: ReadText, semantics: Record<string, Sem
       const known = [BASELINE, ...entry.scenarios.map((s) => s.name)].join(', ');
       throw new Error(`Unknown scenario "${scenario}" (known: ${known})`);
     }
-    return runPipeline(resolvePipeline(entry, patch), semantics, scopedReader(readText, entry.dir));
+    return runPipeline(resolvePipeline(entry, patch), semantics, scopedReader(readText, entry.dir), fetchFile);
   }
 }

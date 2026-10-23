@@ -15,13 +15,13 @@ export function nodePythonHost(downloads = DOWNLOADS): PythonHost {
     runtime: `Pyodide ${PYODIDE_VERSION}`,
     async run(job, onLog) {
       pyodide ??= import('pyodide').then(({ loadPyodide }) => loadPyodide());
-      return runInPyodide(await pyodide, job, onLog, (file, log) => cachedDownload(file, downloads, log));
+      return runInPyodide(await pyodide, job, onLog, (file, log) => cachedDownload(file, log, downloads));
     },
   };
 }
 
 /** Downloads are kept by content hash, so a changed file upstream is noticed rather than silently used. */
-async function cachedDownload(file: RemoteFile, downloads: string, onLog: (line: string) => void): Promise<Uint8Array> {
+export async function cachedDownload(file: RemoteFile, onLog: (line: string) => void, downloads = DOWNLOADS): Promise<Uint8Array> {
   const path = join(downloads, file.sha256);
   const cached = await readFile(path).catch(() => undefined);
   if (cached) return new Uint8Array(cached.buffer, cached.byteOffset, cached.byteLength);
