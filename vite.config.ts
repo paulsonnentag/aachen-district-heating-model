@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadableStream } from 'node:stream/web';
 import { defineConfig, type Plugin } from 'vitest/config';
@@ -12,11 +12,6 @@ export default defineConfig({
   worker: { format: 'es' },
   build: {
     target: 'esnext',
-    rollupOptions: {
-      input: {
-        app: resolve(import.meta.dirname, 'app.html'),
-      },
-    },
   },
   test: {
     include: ['lib/**/*.test.ts'],
